@@ -37,6 +37,21 @@
   }
   .bm-fav-card:hover{ transform:translateY(-2px); }
   .bm-fav-card.active{ background:var(--star); color:#3a2c1a; }
+  .save-btn{
+    flex:0 0 auto; border:none; padding:16px 20px; border-radius:14px; cursor:pointer;
+    font-weight:700; font-size:.95rem; background:#2b6e50; color:#fff;
+    box-shadow:0 4px 14px rgba(0,0,0,.12); transition:transform .12s, filter .12s, opacity .12s;
+  }
+  .save-btn:hover{ transform:translateY(-2px); filter:brightness(1.08); }
+  .save-btn:active{ transform:translateY(0); }
+  .save-btn:disabled{ opacity:.65; cursor:wait; transform:none; }
+  .save-toast{
+    position:fixed; top:16px; left:50%; transform:translateX(-50%);
+    background:#2b6e50; color:#fff; padding:12px 22px; border-radius:14px;
+    font-weight:700; font-size:.88rem; box-shadow:0 8px 22px rgba(0,0,0,.2); z-index:999;
+    animation:fadeSlide .25s ease; display:none; white-space:nowrap;
+  }
+  @keyframes fadeSlide{ from{opacity:0; transform:translate(-50%,-10px);} to{opacity:1; transform:translate(-50%,0);} }
 
   /* --- Filter bar: compact clickable dropdowns --- */
   .filter-bar{
@@ -274,7 +289,9 @@
 <div class="bm-fav-row">
   <button class="bm-fav-card" id="bookmarkToggle">☆ Bookmarks (<span id="bmCount">0</span>)</button>
   <button class="bm-fav-card" id="favoritesToggle" style="background:#a3345a;">♡ Favorites (<span id="favCount">0</span>)</button>
+  <button class="save-btn" id="saveBtn" title="Save your bookmarks, favorites & links now">💾 Save</button>
 </div>
+<div id="saveToast" class="save-toast"></div>
 
 <div id="browseView">
 <div class="filter-bar" id="filterBar">
@@ -393,6 +410,96 @@
 </div>
 
 <script>
+/* =========================================================
+   FIREBASE — cloud sync (no login/auth; open read/write via REST),
+   same project/pattern as the Grade 2 app, its own database path
+   ("kids_tv_shows") so this app's data never collides with others.
+   Falls back to localStorage-only if the network/Firebase is unreachable.
+   ========================================================= */
+const FIREBASE_DB_URL = "https://kidstv-17b97-default-rtdb.asia-southeast1.firebasedatabase.app/";
+const CLOUD_URL = FIREBASE_DB_URL + "kids_tv_shows.json";
+const LS_PREFIX = "ktv_"; // every localStorage key this app uses starts with this
+
+// Bundles every ktv_ localStorage key into one JSON blob for Firebase.
+function buildLocalSnapshot(){
+  const out = {};
+  for(let i=0;i<localStorage.length;i++){
+    const k = localStorage.key(i);
+    if(k && k.indexOf(LS_PREFIX)===0){
+      try{ out[k] = JSON.parse(localStorage.getItem(k)); }catch(e){}
+    }
+  }
+  return out;
+}
+
+let cloudSyncTimer = null;
+function queueCloudSync(){
+  // Debounce so rapid clicks (bookmarking, hearting) don't fire a request each time.
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = setTimeout(pushToCloud, 600);
+}
+
+async function pushToCloud(){
+  try{
+    const res = await fetch(CLOUD_URL, {
+      method: "PUT",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(buildLocalSnapshot())
+    });
+    if(!res.ok) throw new Error("bad response");
+    return true;
+  }catch(e){
+    // Offline or Firebase unreachable — local copy is still safe.
+    console.warn("Firebase sync skipped:", e.message);
+    return false;
+  }
+}
+
+async function loadFromCloud(){
+  // Pull the shared save down in the background, so this device
+  // picks up bookmarks/favorites made on any other device. Falls back
+  // silently to whatever is already in localStorage if the cloud isn't reachable.
+  try{
+    const res = await fetch(CLOUD_URL);
+    if(!res.ok) throw new Error("bad response");
+    const remote = await res.json();
+    if(remote && typeof remote === "object"){
+      Object.keys(remote).forEach(k=>{
+        try{ localStorage.setItem(k, JSON.stringify(remote[k])); }catch(e){}
+      });
+      return true;
+    }
+    return false;
+  }catch(e){
+    console.warn("Firebase load skipped (offline):", e.message);
+    return false;
+  }
+}
+
+function showSaveToast(msg){
+  const el = document.getElementById('saveToast');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(showSaveToast._t);
+  showSaveToast._t = setTimeout(()=>{ el.style.display = 'none'; }, 1800);
+}
+
+async function saveEverythingNow(){
+  const btn = document.getElementById('saveBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '💾 Saving…'; }
+  // Write every piece of state to localStorage first (always succeeds),
+  // then skip the debounce and push the full snapshot to Firebase right away.
+  saveDeletedShows();
+  saveDownloadLinks();
+  saveBookmarks();
+  saveFavorites();
+  clearTimeout(cloudSyncTimer);
+  const cloudOk = await pushToCloud();
+  showSaveToast(cloudOk ? "✅ Saved to Firebase!" : "⚠️ Saved on this device only (offline)");
+  if(btn){ btn.disabled = false; btn.textContent = '💾 Save'; }
+}
+
 const shows = [
 {t:"Mister Rogers' Neighborhood", net:"PBS Kids", dec:"1990s", age:"2-7", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"Gentle long-running series (1968–2001) about kindness, feelings, and everyday life. Its slow, sincere pacing was a deliberate rejection of frantic children's programming and remains influential today."},
 {t:"Sesame Street", net:"PBS Kids", dec:"1990s", age:"0-5", cat:"Preschool Learning", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"Iconic puppet-driven show teaching letters, numbers, and social skills since 1969. It has won more Emmy Awards than any other children's series and helped establish the format for educational television worldwide."},
@@ -1491,24 +1598,23 @@ function sortItems(items){
   return arr;
 }
 
-async function loadBookmarks(){
+function loadBookmarks(){
   try{
-    const result = await window.storage.get('bookmarked_shows', false);
-    if(result && result.value){
-      bookmarks = new Set(JSON.parse(result.value));
-    }
+    const raw = localStorage.getItem(LS_PREFIX+'bookmarked_shows');
+    if(raw) bookmarks = new Set(JSON.parse(raw));
   }catch(e){
     bookmarks = new Set();
   }
   render();
 }
 
-async function saveBookmarks(){
+function saveBookmarks(){
   try{
-    await window.storage.set('bookmarked_shows', JSON.stringify([...bookmarks]), false);
+    localStorage.setItem(LS_PREFIX+'bookmarked_shows', JSON.stringify([...bookmarks]));
   }catch(e){
     console.error('Could not save bookmarks', e);
   }
+  queueCloudSync();
 }
 
 
@@ -1524,24 +1630,23 @@ function toggleBookmark(title){
   render();
 }
 
-async function loadFavorites(){
+function loadFavorites(){
   try{
-    const result = await window.storage.get('favorite_shows', false);
-    if(result && result.value){
-      favorites = new Set(JSON.parse(result.value));
-    }
+    const raw = localStorage.getItem(LS_PREFIX+'favorite_shows');
+    if(raw) favorites = new Set(JSON.parse(raw));
   }catch(e){
     favorites = new Set();
   }
   render();
 }
 
-async function saveFavorites(){
+function saveFavorites(){
   try{
-    await window.storage.set('favorite_shows', JSON.stringify([...favorites]), false);
+    localStorage.setItem(LS_PREFIX+'favorite_shows', JSON.stringify([...favorites]));
   }catch(e){
     console.error('Could not save favorites', e);
   }
+  queueCloudSync();
 }
 
 function toggleFavorite(title){
@@ -1619,42 +1724,40 @@ function closeFavoritesPage(){
   browseView.classList.remove('hidden');
 }
 
-async function loadDownloadLinks(){
+function loadDownloadLinks(){
   try{
-    const result = await window.storage.get('show_download_links', false);
-    if(result && result.value){
-      downloadLinks = JSON.parse(result.value);
-    }
+    const raw = localStorage.getItem(LS_PREFIX+'show_download_links');
+    if(raw) downloadLinks = JSON.parse(raw);
   }catch(e){
     downloadLinks = {};
   }
 }
 
-async function saveDownloadLinks(){
+function saveDownloadLinks(){
   try{
-    await window.storage.set('show_download_links', JSON.stringify(downloadLinks), false);
+    localStorage.setItem(LS_PREFIX+'show_download_links', JSON.stringify(downloadLinks));
   }catch(e){
     console.error('Could not save download links', e);
   }
+  queueCloudSync();
 }
 
-async function loadDeletedShows(){
+function loadDeletedShows(){
   try{
-    const result = await window.storage.get('deleted_shows', false);
-    if(result && result.value){
-      deletedShows = new Set(JSON.parse(result.value));
-    }
+    const raw = localStorage.getItem(LS_PREFIX+'deleted_shows');
+    if(raw) deletedShows = new Set(JSON.parse(raw));
   }catch(e){
     deletedShows = new Set();
   }
 }
 
-async function saveDeletedShows(){
+function saveDeletedShows(){
   try{
-    await window.storage.set('deleted_shows', JSON.stringify([...deletedShows]), false);
+    localStorage.setItem(LS_PREFIX+'deleted_shows', JSON.stringify([...deletedShows]));
   }catch(e){
     console.error('Could not save deleted shows', e);
   }
+  queueCloudSync();
 }
 
 function deleteShow(title){
@@ -1871,8 +1974,28 @@ document.getElementById('bookmarksModalOverlay').addEventListener('click', (e)=>
 });
 searchInput.addEventListener('input', render);
 
+document.getElementById('saveBtn').addEventListener('click', saveEverythingNow);
+
 updateBadges();
-loadDeletedShows().then(()=> loadDownloadLinks().then(loadBookmarks).then(loadFavorites));
+
+/* =========================================================
+   STARTUP — mount instantly from whatever's in localStorage,
+   then hydrate from Firebase in the background so bookmarks/
+   favorites made on other devices still show up here too.
+   ========================================================= */
+loadDeletedShows();
+loadDownloadLinks();
+loadBookmarks();
+loadFavorites();
+
+loadFromCloud().then(cloudSynced=>{
+  if(cloudSynced){
+    loadDeletedShows();
+    loadDownloadLinks();
+    loadBookmarks();
+    loadFavorites();
+  }
+});
 </script>
 </body>
 </html>
