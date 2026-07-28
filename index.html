@@ -24,19 +24,6 @@
     display:flex; align-items:center; gap:6px; flex:0 0 auto; white-space:nowrap;
   }
   .bookmark-toggle.active{ background:var(--star); color:#3a2c1a; }
-
-  .bm-fav-row{
-    max-width:900px; margin:14px auto 0; padding:0 16px;
-    display:flex; gap:12px;
-  }
-  .bm-fav-card{
-    flex:1 1 0; border:none; padding:16px 18px; border-radius:14px; cursor:pointer;
-    font-weight:700; font-size:.95rem; background:#3a2c1a; color:#fff;
-    box-shadow:0 4px 14px rgba(0,0,0,.12); text-align:center;
-    transition:transform .12s;
-  }
-  .bm-fav-card:hover{ transform:translateY(-2px); }
-  .bm-fav-card.active{ background:var(--star); color:#3a2c1a; }
   .save-btn{
     flex:0 0 auto; border:none; padding:16px 20px; border-radius:14px; cursor:pointer;
     font-weight:700; font-size:.95rem; background:#2b6e50; color:#fff;
@@ -52,6 +39,19 @@
     animation:fadeSlide .25s ease; display:none; white-space:nowrap;
   }
   @keyframes fadeSlide{ from{opacity:0; transform:translate(-50%,-10px);} to{opacity:1; transform:translate(-50%,0);} }
+
+  .bm-fav-row{
+    max-width:900px; margin:14px auto 0; padding:0 16px;
+    display:flex; gap:12px;
+  }
+  .bm-fav-card{
+    flex:1 1 0; border:none; padding:16px 18px; border-radius:14px; cursor:pointer;
+    font-weight:700; font-size:.95rem; background:#3a2c1a; color:#fff;
+    box-shadow:0 4px 14px rgba(0,0,0,.12); text-align:center;
+    transition:transform .12s;
+  }
+  .bm-fav-card:hover{ transform:translateY(-2px); }
+  .bm-fav-card.active{ background:var(--star); color:#3a2c1a; }
 
   /* --- Filter bar: compact clickable dropdowns --- */
   .filter-bar{
@@ -214,10 +214,18 @@
   .modal-body{ padding:16px 20px 22px; overflow-y:auto; }
   .empty-bm{ text-align:center; color:var(--muted); padding:30px 10px; font-size:.9rem; }
   .bm-row{
-    background:var(--card); border-radius:12px; padding:12px 14px; margin-bottom:10px;
+    position:relative; background:var(--card); border-radius:12px; padding:12px 40px 12px 14px; margin-bottom:10px;
     box-shadow:0 2px 6px rgba(0,0,0,.05);
   }
-  .bm-title{ font-size:.98rem; margin:0 0 6px; }
+  .bm-download-btn{
+    position:absolute; top:10px; right:10px; width:26px; height:26px; border-radius:50%;
+    border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;
+    font-size:.78rem; font-weight:700; color:#fff; background:#cfc6b6; padding:0;
+    transition:transform .12s, background .12s;
+  }
+  .bm-download-btn:hover{ transform:scale(1.12); }
+  .bm-download-btn.downloaded{ background:var(--stream); }
+  .bm-title{ font-size:.98rem; margin:0 0 6px; padding-right:20px; }
   .bm-tagrow{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
   .bm-tagrow .tag{ font-size:.65rem; font-weight:700; color:#fff; padding:2px 8px; border-radius:999px; }
   .bm-desc{ margin:0 0 10px; font-size:.82rem; color:var(--muted); line-height:1.45; }
@@ -410,96 +418,6 @@
 </div>
 
 <script>
-/* =========================================================
-   FIREBASE — cloud sync (no login/auth; open read/write via REST),
-   same project/pattern as the Grade 2 app, its own database path
-   ("kids_tv_shows") so this app's data never collides with others.
-   Falls back to localStorage-only if the network/Firebase is unreachable.
-   ========================================================= */
-const FIREBASE_DB_URL = "https://kidstv-17b97-default-rtdb.asia-southeast1.firebasedatabase.app/";
-const CLOUD_URL = FIREBASE_DB_URL + "kids_tv_shows.json";
-const LS_PREFIX = "ktv_"; // every localStorage key this app uses starts with this
-
-// Bundles every ktv_ localStorage key into one JSON blob for Firebase.
-function buildLocalSnapshot(){
-  const out = {};
-  for(let i=0;i<localStorage.length;i++){
-    const k = localStorage.key(i);
-    if(k && k.indexOf(LS_PREFIX)===0){
-      try{ out[k] = JSON.parse(localStorage.getItem(k)); }catch(e){}
-    }
-  }
-  return out;
-}
-
-let cloudSyncTimer = null;
-function queueCloudSync(){
-  // Debounce so rapid clicks (bookmarking, hearting) don't fire a request each time.
-  clearTimeout(cloudSyncTimer);
-  cloudSyncTimer = setTimeout(pushToCloud, 600);
-}
-
-async function pushToCloud(){
-  try{
-    const res = await fetch(CLOUD_URL, {
-      method: "PUT",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(buildLocalSnapshot())
-    });
-    if(!res.ok) throw new Error("bad response");
-    return true;
-  }catch(e){
-    // Offline or Firebase unreachable — local copy is still safe.
-    console.warn("Firebase sync skipped:", e.message);
-    return false;
-  }
-}
-
-async function loadFromCloud(){
-  // Pull the shared save down in the background, so this device
-  // picks up bookmarks/favorites made on any other device. Falls back
-  // silently to whatever is already in localStorage if the cloud isn't reachable.
-  try{
-    const res = await fetch(CLOUD_URL);
-    if(!res.ok) throw new Error("bad response");
-    const remote = await res.json();
-    if(remote && typeof remote === "object"){
-      Object.keys(remote).forEach(k=>{
-        try{ localStorage.setItem(k, JSON.stringify(remote[k])); }catch(e){}
-      });
-      return true;
-    }
-    return false;
-  }catch(e){
-    console.warn("Firebase load skipped (offline):", e.message);
-    return false;
-  }
-}
-
-function showSaveToast(msg){
-  const el = document.getElementById('saveToast');
-  if(!el) return;
-  el.textContent = msg;
-  el.style.display = 'block';
-  clearTimeout(showSaveToast._t);
-  showSaveToast._t = setTimeout(()=>{ el.style.display = 'none'; }, 1800);
-}
-
-async function saveEverythingNow(){
-  const btn = document.getElementById('saveBtn');
-  if(btn){ btn.disabled = true; btn.textContent = '💾 Saving…'; }
-  // Write every piece of state to localStorage first (always succeeds),
-  // then skip the debounce and push the full snapshot to Firebase right away.
-  saveDeletedShows();
-  saveDownloadLinks();
-  saveBookmarks();
-  saveFavorites();
-  clearTimeout(cloudSyncTimer);
-  const cloudOk = await pushToCloud();
-  showSaveToast(cloudOk ? "✅ Saved to Firebase!" : "⚠️ Saved on this device only (offline)");
-  if(btn){ btn.disabled = false; btn.textContent = '💾 Save'; }
-}
-
 const shows = [
 {t:"Mister Rogers' Neighborhood", net:"PBS Kids", dec:"1990s", age:"2-7", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"Gentle long-running series (1968–2001) about kindness, feelings, and everyday life. Its slow, sincere pacing was a deliberate rejection of frantic children's programming and remains influential today."},
 {t:"Sesame Street", net:"PBS Kids", dec:"1990s", age:"0-5", cat:"Preschool Learning", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"Iconic puppet-driven show teaching letters, numbers, and social skills since 1969. It has won more Emmy Awards than any other children's series and helped establish the format for educational television worldwide."},
@@ -908,7 +826,7 @@ const shows = [
 {t:"Corn & Peg", net:"Streaming & Other", dec:"2010s", age:"3-6", cat:"Adventure", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"Two best friends run a ranch and go on Western-style adventures (2016–2018, streaming). The series leans into world-building, giving its setting recurring locations and rules of its own."},
 {t:"Chuggington", net:"Streaming & Other", dec:"2000s", age:"2-5", cat:"Adventure", cat2:"Sports", g:"neutral", lang:"English", d:"Young trainees learn to be trains at a bustling depot, building teamwork skills (2008–2016, streaming). Each episode tends to end with the characters overcoming an obstacle through cooperation rather than force."},
 {t:"Jane and the Dragon", net:"Streaming & Other", dec:"2000s", age:"5-9", cat:"Adventure", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"A young squire-in-training and her dragon friend protect their medieval kingdom (2005–2007, streaming). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
-{t:"Peep and the Big Wide World Espanol", net:"Streaming & Other", dec:"2000s", age:"3-6", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"Bilingual version of the science-curious chick series exploring the world (2005–2011, streaming). Episodes typically follow a simple question-and-discovery structure, ending with a clear takeaway."},
+{t:"Nella the Princess Knight", net:"Nickelodeon", dec:"2010s", age:"5-7", cat:"Fantasy & Magic", cat2:"Adventure", g:"girls", lang:"English", d:"A young princess trades her tiara for armor to protect her kingdom with kindness and courage (2017–2020). Each quest ties a fantasy adventure to a gentle lesson about fairness and standing up for others."},
 {t:"Toopy and Binoo", net:"Streaming & Other", dec:"2000s", age:"2-5", cat:"Comedy", cat2:"Sports", g:"neutral", lang:"English", d:"A mouse and his stuffed cat friend turn ordinary days into wild imaginative games (2004–2015, streaming). Episodes are largely stand-alone, prioritizing jokes and character quirks over ongoing plot."},
 {t:"Bob Books Adventures", net:"Streaming & Other", dec:"2020s", age:"3-6", cat:"Preschool Learning", cat2:"Adventure", g:"neutral", lang:"English", d:"Simple animated stories reinforce early phonics and beginning reading (2020s, streaming). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
 {t:"Miss Linky", net:"YouTube", dec:"2020s", age:"2-5", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"An educational YouTube channel with sing-along songs about letters, numbers, and manners (2020s–present). Songs and rhythm-based segments are a defining feature of its episode structure."},
@@ -1400,7 +1318,308 @@ const shows = [
 {t:"Brave Wilderness", net:"YouTube", dec:"2010s", age:"7-9", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"A wildlife educator gets up close with animals around the world, from bugs to reptiles (2014\u2013present). Its hands-on, high-energy approach to animal encounters makes wildlife facts feel like real adventure."},
 {t:"EvanTubeHD", net:"YouTube", dec:"2010s", age:"6-9", cat:"Comedy", cat2:"Sports", g:"neutral", lang:"English", d:"A kid host reviews toys, games, and family-friendly experiences alongside his family (2011\u2013present). Its kid's-eye-view commentary on toys and games gave it broad appeal among young viewers."},
 {t:"SciShow", net:"YouTube", dec:"2010s", age:"7-9", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"Fast-paced videos explaining science topics and current discoveries in an accessible, curious tone (2012\u2013present). Older viewers within the 6-9 range can follow its clear explanations alongside a parent."},
-{t:"TheOdd1sOut", net:"YouTube", dec:"2010s", age:"7-9", cat:"Comedy", cat2:"Music & Arts", g:"neutral", lang:"English", d:"An animator narrates comedic true stories from his own life using simple stick-figure animation (2014\u2013present). Its relatable, self-deprecating storytelling style made it one of the most popular kid-friendly animation channels."},];
+{t:"TheOdd1sOut", net:"YouTube", dec:"2010s", age:"7-9", cat:"Comedy", cat2:"Music & Arts", g:"neutral", lang:"English", d:"An animator narrates comedic true stories from his own life using simple stick-figure animation (2014\u2013present). Its relatable, self-deprecating storytelling style made it one of the most popular kid-friendly animation channels."},
+{t:"Bea's Block", net:"Streaming & Other", dec:"2020s", age:"2-5", cat:"Preschool Learning", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"Sesame Workshop preschool series exploring emotions and community through a young Black girl's daily adventures (2024\u2013present, Max). It expands Sesame Street's legacy of social-emotional learning with a contemporary, single-family focus."},
+{t:"The Ollie and Moon Show", net:"Streaming & Other", dec:"2010s", age:"2-5", cat:"Adventure", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Two globe-trotting cat cousins explore world cultures and problem-solving (2016\u20132018, streaming on Max). Its travel-of-the-week structure introduces young viewers to real places and customs."},
+{t:"Messy Goes to Okido", net:"Streaming & Other", dec:"2010s", age:"3-6", cat:"Science & Nature", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"A curious monster-like character explores science and art concepts in the town of Okido (2014\u2013present, streaming on Max). Each episode pairs a simple experiment with a companion curiosity."},
+{t:"Mia's Magic Playground", net:"Streaming & Other", dec:"2010s", age:"2-5", cat:"Fantasy & Magic", cat2:"Preschool Learning", g:"girls", lang:"English", d:"A young girl and her toys venture into a magical world reached through her toy box (2014\u2013present, streaming on Max). Puzzle-solving and imaginative play anchor its preschool-friendly plots."},
+{t:"Esme & Roy", net:"Streaming & Other", dec:"2010s", age:"2-5", cat:"Life Skills & Emotions", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"A young babysitter and her monster friend Roy care for a menagerie of monster friends, modeling patience and empathy (2018\u20132020, Max). Its themes were designed with early-childhood specialists to reinforce caregiving behaviors."},
+{t:"Love Monster", net:"Streaming & Other", dec:"2010s", age:"2-5", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"A small, fuzzy monster navigates everyday feelings like jealousy and worry with gentle humor (2020\u20132022, Max). Its short-form episodes are built around simple emotional vocabulary for toddlers."},
+{t:"Naked Mole Rat Gets Dressed", net:"Streaming & Other", dec:"2020s", age:"3-6", cat:"Music & Arts", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"Mo Willems' musical special follows a naked mole rat who dares to wear clothes despite his community's disapproval (2020, Max). Its rock-opera format champions individuality with catchy original songs."},
+{t:"Hop", net:"Streaming & Other", dec:"2020s", age:"2-5", cat:"Preschool Learning", cat2:"Adventure", g:"neutral", lang:"English", d:"Animated preschool series following a small character's playful daily discoveries (2024\u2013present, Max/Cartoonito). Its short episodes favor repetition and gentle pacing typical of toddler programming."},
+{t:"Lu & the Bally Bunch", net:"Streaming & Other", dec:"2020s", age:"2-5", cat:"Sports", cat2:"Music & Arts", g:"girls", lang:"English", d:"A rhythmic gymnast and her friends learn teamwork and movement through dance and play (2024\u2013present, Max). The series was developed with Sesame Workshop's early-learning framework."},
+{t:"Let's Go, Bananas!", net:"Streaming & Other", dec:"2020s", age:"2-5", cat:"Comedy", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"A troupe of banana-shaped characters get into slapstick mishaps and simple problem-solving (2024\u2013present, Max/Cartoonito). Its wordless, visual-gag style is designed for the youngest viewers."},
+{t:"Tom and Jerry in New York", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"The classic cat-and-mouse duo relocate to a bustling New York City for new chase-based hijinks (2021\u20132022, Max). It keeps the silent-comedy slapstick tradition of the original theatrical shorts."},
+{t:"Unicorn: Warriors Eternal", net:"Streaming & Other", dec:"2020s", age:"7-9", cat:"Fantasy & Magic", cat2:"Superhero & Action", g:"neutral", lang:"English", d:"Ancient warriors reincarnated across centuries team up with modern kids to battle a shape-shifting evil (2023, Max). Its serialized, mythology-heavy story skews toward older elementary viewers."},
+{t:"Gremlins: Secrets of the Mogwai", net:"Streaming & Other", dec:"2020s", age:"7-9", cat:"Adventure", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"A prequel to the Gremlins films follows a young Mr. Wing's adventure with a mogwai in 1920s Shanghai (2023, Max). Its serialized adventure plot expands the film franchise's mythology for family audiences."},
+{t:"Mush-Mush & the Mushables", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Adventure", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"Small mushroom-like forest creatures go on gentle woodland adventures (2020\u2013present, Max/Cartoon Network). A Canadian-French co-production, it emphasizes cooperative problem-solving in a whimsical setting."},
+{t:"Ladybird Lu", net:"Streaming & Other", dec:"2020s", age:"2-5", cat:"Preschool Learning", cat2:"Adventure", g:"girls", lang:"English", d:"A young ladybird explores her garden neighborhood and its tiny inhabitants (2024\u2013present, Max/Cartoonito). It's built around simple, curiosity-driven mini-adventures for preschoolers."},
+{t:"Thomas & Friends: All Engines Go", net:"Streaming & Other", dec:"2020s", age:"2-6", cat:"Adventure", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"A CG-animated reboot of the Thomas the Tank Engine franchise follows the engines of Sodor on new adventures (2021\u2013present, Max/Cartoon Network). The redesign trades stop-motion models for a brighter, faster-paced animation style."},
+{t:"My Adventures with Superman", net:"Streaming & Other", dec:"2020s", age:"7-9", cat:"Superhero & Action", cat2:"Sci-Fi", g:"neutral", lang:"English", d:"A young, anime-inspired Clark Kent navigates early superheroism alongside Lois Lane and Jimmy Olsen (2023\u2013present, Max). Its stylized animation and slower character focus distinguish it from prior Superman adaptations."},
+{t:"Just Add Magic", net:"Streaming & Other", dec:"2010s", age:"7-9", cat:"Fantasy & Magic", cat2:"Mystery", g:"girls", lang:"English", d:"Three friends discover a magical cookbook and must undo a dangerous curse using its recipes (2015\u20132019, Amazon Prime Video). Its blend of cooking and light mystery gave it a distinct format among tween fantasy shows."},
+{t:"Gortimer Gibbon's Life on Normal Street", net:"Streaming & Other", dec:"2010s", age:"7-9", cat:"Mystery", cat2:"Comedy", g:"neutral", lang:"English", d:"Three kids uncover odd mysteries hiding in plain sight on their suburban street (2014\u20132016, Amazon Prime Video). Each episode wraps a small-town mystery with a life lesson about friendship."},
+{t:"Wishenpoof!", net:"Streaming & Other", dec:"2010s", age:"2-5", cat:"Fantasy & Magic", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"A young girl with the power to wish away problems learns to manage her emotions instead (2014\u20132017, Amazon Prime Video). It centers on emotional regulation as much as its whimsical wish-granting premise."},
+{t:"Cleopatra in Space", net:"Streaming & Other", dec:"2010s", age:"7-9", cat:"Sci-Fi", cat2:"Adventure", g:"girls", lang:"English", d:"A teenage Cleopatra is transported to a far-future space academy where she trains to save the galaxy (2019\u20132021, Peacock). Its blend of Egyptian mythology and sci-fi academy tropes gives it a distinctive premise."},
+{t:"The Fairly OddParents: A New Wish", net:"Streaming & Other", dec:"2020s", age:"5-9", cat:"Fantasy & Magic", cat2:"Comedy", g:"neutral", lang:"English", d:"A live-action/animated hybrid reboot follows a new kid granted wishes by fairy godparents Cosmo and Wanda (2023\u2013present, Paramount+). It blends practical effects with animated characters in a format new to the franchise."},
+{t:"That Girl Lay Lay", net:"Streaming & Other", dec:"2020s", age:"7-9", cat:"Comedy", cat2:"Fantasy & Magic", g:"girls", lang:"English", d:"A lonely girl's AI doll comes to life as a rapping best friend (2021\u2013present, Paramount+/Nickelodeon). Its music-driven comedy plots center on the pair's mismatched personalities."},
+{t:"The Bravest Knight", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Fantasy & Magic", cat2:"Adventure", g:"neutral", lang:"English", d:"A pumpkin farmer recounts to his daughter how he became a knight who saved a princess (2019, Hulu). Its storybook framing device retells classic fairy-tale beats with an inclusive modern family at its center."},
+{t:"My Little Pony: Tell Your Tale", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Fantasy & Magic", cat2:"Music & Arts", g:"girls", lang:"English", d:"Short-form episodes follow the new generation of ponies sharing lessons about friendship (2022\u2013present, Peacock/Discovery Family). Its bite-sized format suits quick viewing sessions for younger fans."},
+{t:"Sesame Street: Mecha Builders", net:"Streaming & Other", dec:"2020s", age:"3-6", cat:"Preschool Learning", cat2:"Science & Nature", g:"neutral", lang:"English", d:"A Sesame Workshop spin-off follows kids who transform into giant robots to solve neighborhood problems (2024\u2013present, Max). It folds STEM and teamwork themes into a superhero-style premise for preschoolers."},
+{t:"Legion of Zoom", net:"Streaming & Other", dec:"2020s", age:"5-9", cat:"Superhero & Action", cat2:"Comedy", g:"neutral", lang:"English", d:"Short-form DC series follows young supervillains-in-training at a school for future Flash rivals (2022, Max). Its shorts format delivers quick bursts of superhero comedy."},
+{t:"Batman: Caped Crusader", net:"Streaming & Other", dec:"2020s", age:"7-9", cat:"Superhero & Action", cat2:"Mystery", g:"neutral", lang:"English", d:"A reimagined take on Batman's early years blends noir mystery with classic rogues' gallery villains (2024\u2013present, Amazon Prime Video). Its moodier, film-noir art style sets it apart from earlier Batman cartoons."},
+{t:"The Really Loud House", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Comedy", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A live-action spin-off follows Lincoln Loud and his ten sisters navigating chaotic family life (2022\u2013present, Paramount+/Nickelodeon). It adapts the animated original's oversized-family humor into live action."},
+{t:"The Mr. Men Show", net:"Streaming & Other", dec:"2000s", age:"2-6", cat:"Comedy", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"Simple, shape-based characters like Mr. Bump and Little Miss Sunshine get into gentle comic mishaps (2008\u20132009; streaming on Amazon Prime Video). Based on Roger Hargreaves' books, it keeps the source material's minimalist charm."},
+{t:"Angelina Ballerina", net:"Streaming & Other", dec:"2000s", age:"2-6", cat:"Music & Arts", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"A young mouse pursues her dream of becoming a ballerina while learning about friendship (2001\u20132006; streaming on Amazon Prime Video/HBO Family). Its dance-focused storylines appeal especially to young performing-arts fans."},
+{t:"Molang", net:"Streaming & Other", dec:"2010s", age:"2-5", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"French", d:"A round, expressive rabbit-like character and his chick friend Piu Piu get into wordless comic mishaps (2015\u2013present; streaming on Amazon Prime Video). Originally a French-Korean digital character, the series relies entirely on visual comedy rather than dialogue."},
+{t:"Danger Rangers", net:"Streaming & Other", dec:"2000s", age:"4-8", cat:"Life Skills & Emotions", cat2:"Adventure", g:"neutral", lang:"English", d:"Animal rescue rangers teach kids about safety around hazards like fire and water (2005\u20132007; streaming on Amazon Prime Video/Tubi). Each episode ties a specific safety lesson to a lighthearted rescue mission."},
+{t:"Wibbly Pig", net:"Streaming & Other", dec:"2000s", age:"1-4", cat:"Preschool Learning", cat2:"Comedy", g:"neutral", lang:"English", d:"A cheerful young pig navigates simple everyday adventures and mild mischief (2009\u20132010; streaming on Amazon Prime Video). Its gentle slice-of-life episodes suit very young preschool viewers."},
+{t:"Get Well Soon", net:"Streaming & Other", dec:"2010s", age:"3-6", cat:"Life Skills & Emotions", cat2:"Science & Nature", g:"neutral", lang:"English", d:"A friendly on-screen doctor and puppet patients explain common childhood illnesses and treatments (2010\u20132013, CBeebies/streaming on Amazon Prime Video). Its gentle, reassuring tone is designed to ease anxiety around doctor visits."},
+{t:"Swashbuckle", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"Two pirate hosts lead a live-action game show filled with pirate-themed challenges (2011\u20132018, CBeebies/streaming on Amazon Prime Video). Its game-show format and slapstick humor set it apart from typical scripted preschool fare."},
+{t:"Tree Fu Tom", net:"Streaming & Other", dec:"2010s", age:"3-7", cat:"Fantasy & Magic", cat2:"Adventure", g:"neutral", lang:"English", d:"A boy uses magic spells and simple exercise-based gestures to transform into a hero in a fantasy forest (2012\u20132014, CBeebies/streaming on Amazon Prime Video). Its movement-based magic system encourages young viewers to act out the spells themselves."},
+{t:"Chicken Squad", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Mystery", cat2:"Comedy", g:"neutral", lang:"English", d:"Three chicken siblings solve small neighborhood mysteries with help from their owl mentor (2018\u20132021, Amazon Prime Video). Based on the book series, its light mystery format wraps a gentle lesson around each case."},
+{t:"Boj", net:"Streaming & Other", dec:"2010s", age:"2-5", cat:"Adventure", cat2:"Comedy", g:"neutral", lang:"English", d:"A claymation bear cub and his forest friends explore gentle everyday adventures (2014\u20132016, CBeebies/streaming on Amazon Prime Video). Its stop-motion textures give it a tactile, handmade look distinct from CG-heavy preschool shows."},
+{t:"Caillou (2024)", net:"Streaming & Other", dec:"2020s", age:"2-5", cat:"Life Skills & Emotions", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"A CGI reboot follows the bald preschooler exploring everyday routines and emotions (2024\u2013present, Peacock). It reimagines the long-running franchise with updated animation while keeping its gentle, slice-of-life format."},
+{t:"Dora (2024)", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Adventure", cat2:"Preschool Learning", g:"girls", lang:"English", d:"A new CGI version follows Dora on interactive jungle adventures alongside familiar friends like Boots and Map (2024\u2013present, Nickelodeon/Paramount+). It updates the classic explorer format for a new generation while keeping its call-and-response style."},
+{t:"Team Mekbots Animal Rescue", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"Four tech-savvy kids pilot specialized robot suits to rescue animals in danger around the world (2025\u2013present, Peacock). Its rescue-of-the-week format ties teamwork and problem-solving to real conservation themes."},
+{t:"Bujji and Bhairava", net:"Streaming & Other", dec:"2020s", age:"5-9", cat:"Adventure", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"An Indian animated series follows a young hero and his companion on fantastical adventures (2024, Amazon Prime Video). It brings a distinctly Indian animation style and mythology to the streaming platform's kids' slate."},
+{t:"Charlotte's Web", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Life Skills & Emotions", cat2:"Adventure", g:"neutral", lang:"English", d:"An animated adaptation follows the friendship between a pig named Wilbur and a clever spider named Charlotte (2025, Max). It brings E.B. White's classic story of loyalty and mortality to a new serialized format."},
+{t:"The Chosen Adventures", net:"Streaming & Other", dec:"2020s", age:"5-9", cat:"Adventure", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"An animated series follows a group of kids on faith-themed adventures (2025\u2013present, Amazon Prime Video). It extends its parent franchise's storytelling into a format aimed at younger family viewers."},
+{t:"Dino Ranch: Island Explorers", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Adventure", cat2:"Science & Nature", g:"neutral", lang:"English", d:"A spin-off follows the dino-riding Cassidy-Rodriguez family exploring a new island setting (2025\u2013present, Cartoonito/Max). It carries over the original show's cowboy-meets-dinosaur premise into fresh territory."},
+{t:"Bug Bites", net:"Streaming & Other", dec:"2010s", age:"3-6", cat:"Science & Nature", cat2:"Comedy", g:"neutral", lang:"English", d:"Short animated segments introduce young viewers to insects and other small creatures through simple, funny scenarios (2020, Amazon Prime Video). Its bite-sized format suits short attention spans while sneaking in real bug facts."},
+{t:"Rock Paper Scissors", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"Three toy-box objects — a rock, paper, and scissors — go on playful adventures around a kid's bedroom (2023\u2013present, Nickelodeon/Paramount+). Its odd-trio premise turns simple household objects into an unlikely friend group."},
+{t:"Hello Kitty: Super Style!", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Comedy", cat2:"Music & Arts", g:"girls", lang:"English", d:"Hello Kitty stars in a fashion- and friendship-focused series set in the colorful Cherry Town (2023\u2013present, Amazon Kids+). Its bright visual style and social storylines lean into the character's decades-long lifestyle brand appeal."},
+{t:"Jim Henson's Monster Dance", net:"Streaming & Other", dec:"2020s", age:"2-5", cat:"Music & Arts", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"Short-form dance segments invite kids to move and express big emotions alongside a new cast of Henson-style monster puppets (2020s, Amazon Kids+). It carries forward Jim Henson's puppetry legacy into a movement-focused format."},
+{t:"BAT-FAM", net:"Streaming & Other", dec:"2020s", age:"5-9", cat:"Superhero & Action", cat2:"Comedy", g:"neutral", lang:"English", d:"Batman, Alfred, and a young Damian Wayne navigate family sitcom-style chaos between crime-fighting duties (2020s, Amazon Kids+). Its sitcom framing brings a lighter, family-comedy tone to the Batman universe."},
+{t:"Angry Birds Mystery Island", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Mystery", cat2:"Comedy", g:"neutral", lang:"English", d:"Characters from the Angry Birds game franchise solve island-set mysteries (2020s, Amazon Kids+). It extends the mobile-game property into a mystery-of-the-week animated format."},
+{t:"Creative Galaxy", net:"Streaming & Other", dec:"2010s", age:"3-6", cat:"Music & Arts", cat2:"Adventure", g:"neutral", lang:"English", d:"A young alien named Arty and his ladybug companion travel the galaxy solving problems through art projects (2014\u20132016, Amazon Prime Video). Each episode invites viewers to try a related craft activity at home."},
+{t:"Super Spy Ryan", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Superhero & Action", cat2:"Comedy", g:"neutral", lang:"English", d:"A special from the Ryan's World franchise casts its young host as a gadget-toting secret agent (2020s, Amazon Kids+/Prime Video). It extends the massively popular toy-review brand into scripted spy-comedy territory."},
+{t:"Cocomelon", net:"YouTube", dec:"2010s", age:"1-4", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"The most-watched children's channel on YouTube produces bright, repetitive 3D nursery rhymes and toddler songs (2006\u2013present, rebranded Cocomelon in 2018). Its simple visuals and catchy melodies are aimed squarely at toddlers and language-acquisition-age viewers."},
+{t:"Toys and Colors", net:"YouTube", dec:"2010s", age:"2-6", cat:"Comedy", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A family channel builds pretend-play skits and toy-based stories around everyday scenarios (2016\u2013present). Its playful, low-stakes storytelling format has made it one of the most-watched kids' channels globally."},
+{t:"Khan Academy Kids", net:"YouTube", dec:"2010s", age:"2-6", cat:"Preschool Learning", cat2:"Science & Nature", g:"neutral", lang:"English", d:"Curriculum-aligned videos cover early reading, math, and social-emotional skills for young learners (2018\u2013present). It extends Khan Academy's nonprofit educational mission to a preschool-aged audience."},
+{t:"KIDZ BOP", net:"YouTube", dec:"2010s", age:"5-9", cat:"Music & Arts", cat2:"Comedy", g:"neutral", lang:"English", d:"Kid performers sing clean, kid-friendly covers of current pop hits with accompanying dance videos (2011\u2013present). Its rotating lineup of young singers keeps the format aligned with current chart trends."},
+{t:"Storyline Online", net:"YouTube", dec:"2010s", age:"3-8", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Actors read illustrated children's books aloud on camera, pairing narration with animated page art (2012\u2013present). It's produced by the SAG-AFTRA Foundation to encourage a love of reading."},
+{t:"KidTime StoryTime", net:"YouTube", dec:"2010s", age:"2-6", cat:"Preschool Learning", cat2:"Comedy", g:"neutral", lang:"English", d:"Puppet hosts read picture books aloud with playful interjections and voices (2012\u2013present). Its puppet-and-book format keeps young viewers engaged through interactive-feeling storytelling."},
+{t:"The Fable Cottage", net:"YouTube", dec:"2010s", age:"4-8", cat:"Fantasy & Magic", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Narrated animated retellings of classic fairy tales and fables are told in multiple languages (2016\u2013present). Its focus on traditional stories introduces kids to narrative structure and cultural folklore."},
+{t:"Bright Side", net:"YouTube", dec:"2010s", age:"7-9", cat:"Science & Nature", cat2:"Comedy", g:"neutral", lang:"English", d:"Fast-paced videos cover fun facts, life hacks, and quizzes spanning science and everyday curiosities (2017\u2013present). Its broad, trivia-style format appeals to slightly older kids and tweens alongside younger viewers."},
+{t:"Preschool Prep Company", net:"YouTube", dec:"2000s", age:"0-4", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Simple, repetitive videos teach letters, numbers, shapes, and colors to toddlers (2005\u2013present). Its no-frills, flashcard-style approach has made it a long-running staple of early learning content."},
+{t:"Mother Goose Club", net:"YouTube", dec:"2000s", age:"1-5", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Costumed performers sing classic nursery rhymes and children's songs in live-action videos (2008\u2013present). Its blend of puppetry, live actors, and animation sets it apart from purely animated rhyme channels."},
+{t:"Akili and Me", net:"YouTube", dec:"2010s", age:"3-7", cat:"Preschool Learning", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"An educational animated series teaches early literacy, numeracy, and life skills to preschoolers across Africa (2017\u2013present). It was developed specifically to serve as a first classroom for children without access to preschool."},
+{t:"Dave and Ava", net:"YouTube", dec:"2010s", age:"1-5", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Animated 3D nursery rhymes and lullabies are aimed at babies and toddlers (2017\u2013present). Its calm, simple visuals are designed for very young viewers still developing language."},
+{t:"LooLoo Kids", net:"YouTube", dec:"2010s", age:"1-5", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"A Romanian-produced channel offers animated nursery rhymes and toddler songs (2016\u2013present). Its global, multilingual reach has built a large following among preschool-aged viewers worldwide."},
+{t:"WildBrain", net:"YouTube", dec:"2010s", age:"3-8", cat:"Adventure", cat2:"Comedy", g:"neutral", lang:"English", d:"The umbrella children's entertainment channel hosts clips and full episodes from a wide range of licensed kids' properties (2010s\u2013present). It aggregates content from many different animated franchises under one hub."},
+{t:"PBS KIDS", net:"YouTube", dec:"2010s", age:"2-8", cat:"Preschool Learning", cat2:"Science & Nature", g:"neutral", lang:"English", d:"The official channel streams episodes and clips from PBS's roster of educational children's shows (2010s\u2013present). It centralizes PBS's public-broadcasting educational content for online viewing."},
+{t:"Netflix Jr.", net:"YouTube", dec:"2010s", age:"2-8", cat:"Adventure", cat2:"Comedy", g:"neutral", lang:"English", d:"Clips and highlights from Netflix's children's programming slate are compiled for young viewers (2010s\u2013present). It functions as a promotional and sampler channel for Netflix's broader kids' catalog."},
+{t:"Dr. Binocs Show", net:"YouTube", dec:"2010s", age:"5-9", cat:"Science & Nature", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"An animated explainer character answers curious kid questions about science, history, and geography (2013\u2013present). Its direct, question-and-answer format mirrors a classroom Q&A session."},
+{t:"Have Fun Teaching", net:"YouTube", dec:"2010s", age:"3-8", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Educational songs and videos cover phonics, math, and classroom routines for early learners (2011\u2013present). It's built around curriculum-style songs teachers can use directly in the classroom."},
+{t:"FGTeeV", net:"YouTube", dec:"2010s", age:"6-9", cat:"Comedy", cat2:"Sports", g:"neutral", lang:"English", d:"A family plays and reacts to video games together in an energetic, sketch-comedy style (2013\u2013present). Its family dynamic and games-focused content have made it one of the most-watched family channels among kids."},
+{t:"Vy Qwaint", net:"YouTube", dec:"2010s", age:"5-9", cat:"Comedy", cat2:"Adventure", g:"girls", lang:"English", d:"A young host and her family stage playful skits, challenges, and pretend-play scenarios (2018\u2013present). Its kid-led perspective on everyday challenges appeals to a similarly aged audience."},
+{t:"Ryan and Combo Panda", net:"YouTube", dec:"2010s", age:"3-7", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"An animated spin-off of Ryan's World follows a boy and his robot panda friend through toy-inspired adventures (2019\u2013present). It translates its parent channel's toy-unboxing appeal into a narrative cartoon format."},
+{t:"Fun Squad", net:"YouTube", dec:"2010s", age:"5-9", cat:"Comedy", cat2:"Sports", g:"neutral", lang:"English", d:"A family stages challenges, skits, and playful competitions for the camera (2016\u2013present). Its family-friendly game and challenge format is designed for repeat, binge-style viewing."},
+{t:"Baby Einstein", net:"YouTube", dec:"2000s", age:"0-3", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Gentle videos pair classical music with simple visuals of toys, animals, and everyday objects (2000s\u2013present). Originally developed as an infant-stimulation video brand, it emphasizes calm, sensory-friendly content."},
+{t:"The Toy Heroes", net:"YouTube", dec:"2010s", age:"4-8", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"A British family creates skits and stories featuring popular toy characters (2013\u2013present). Its toy-centered storytelling format blends unboxing with light narrative play."},
+{t:"The Who Was? Show", net:"Streaming & Other", dec:"2010s", age:"5-7", cat:"Comedy", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"Sketch comedy brings famous historical figures to life through kid-friendly humor (2018\u20132019). Each episode turns a real person's story into a quick, punchline-driven history lesson."},
+{t:"Twinkl", net:"YouTube", dec:"2010s", age:"3-8", cat:"Preschool Learning", cat2:"Science & Nature", g:"neutral", lang:"English", d:"An educational resources company shares classroom-style videos covering early literacy and numeracy topics (2010s\u2013present). Its content mirrors materials used by teachers in actual classrooms."},
+{t:"Little Fox", net:"YouTube", dec:"2010s", age:"3-8", cat:"Preschool Learning", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"Animated storybook episodes teach English vocabulary and phrases through short illustrated tales (2013\u2013present). Its graded-level stories are designed for children learning English as a second language."},
+{t:"English Singsing", net:"YouTube", dec:"2010s", age:"3-8", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Songs and chants teach basic English vocabulary and phonics to young language learners (2013\u2013present). Its sing-along format pairs repetition with simple, colorful animation."},
+{t:"Maple Leaf Learning", net:"YouTube", dec:"2010s", age:"2-6", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Puppet-hosted videos teach English phonics, numbers, and vocabulary to young learners (2011\u2013present). Its consistent puppet cast gives repeat viewers familiar characters to learn alongside."},
+{t:"Super Simple Play", net:"YouTube", dec:"2010s", age:"1-5", cat:"Music & Arts", cat2:"Comedy", g:"neutral", lang:"English", d:"A companion channel to Super Simple Songs features character-driven skits and playtime segments (2016\u2013present). It extends its parent channel's toddler-friendly music into narrative play scenarios."},
+{t:"Pinkfong! Kids Stories & Fairy Tales", net:"YouTube", dec:"2010s", age:"2-6", cat:"Fantasy & Magic", cat2:"Music & Arts", g:"neutral", lang:"English", d:"The studio behind Baby Shark narrates classic fairy tales and original stories through animated songs (2010s\u2013present). It broadens Pinkfong's music-driven format into traditional storytelling."},
+{t:"Gecko's Garage", net:"YouTube", dec:"2010s", age:"2-6", cat:"Science & Nature", cat2:"Preschool Learning", g:"boys", lang:"English", d:"A friendly gecko mechanic fixes trucks and vehicles while teaching basic problem-solving (2018\u2013present). Its vehicle-repair premise appeals strongly to young fans of trucks and machines."},
+{t:"Moonbug Kids", net:"YouTube", dec:"2010s", age:"1-6", cat:"Music & Arts", cat2:"Comedy", g:"neutral", lang:"English", d:"A media company's channel compiles songs and stories from its stable of children's brands (2010s\u2013present). It serves as a central hub for several popular toddler-focused shows under one media company."},
+{t:"CoComelon Animal Time", net:"YouTube", dec:"2020s", age:"1-5", cat:"Science & Nature", cat2:"Music & Arts", g:"neutral", lang:"English", d:"A spin-off channel focuses on animal-themed songs and stories using the same 3D animation style (2021\u2013present). It narrows its parent channel's format to nature and animal-focused content."},
+{t:"Blippi Toys", net:"YouTube", dec:"2010s", age:"2-6", cat:"Comedy", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"A companion channel to Blippi focuses on toy play and unboxing in the character's colorful, high-energy style (2018\u2013present). It extends the main channel's educational-through-exploration approach to toy-focused content."},
+{t:"Meekah", net:"YouTube", dec:"2010s", age:"2-6", cat:"Adventure", cat2:"Preschool Learning", g:"girls", lang:"English", d:"A curious young host explores real-world places and jobs in the same educational style as the Blippi universe (2019\u2013present). Its bright, hands-on excursions introduce preschoolers to everyday community helpers."},
+{t:"Gus the Gummy Gator", net:"YouTube", dec:"2020s", age:"2-6", cat:"Comedy", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"A gummy-candy alligator character explores playgrounds and everyday places with childlike wonder (2021\u2013present). It's part of the same educational-adventure family as Blippi and Meekah."},
+{t:"LankyBox", net:"YouTube", dec:"2020s", age:"6-9", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"Two hosts in colorful mascot costumes perform sketches, reactions, and toy-based comedy bits (2018\u2013present). Its high-energy, over-the-top style has made it one of the most-watched channels among elementary-aged kids."},
+{t:"Cool School", net:"YouTube", dec:"2010s", age:"3-8", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Animated read-alongs, sing-alongs, and simple lessons cover early literacy and everyday topics (2013\u2013present). Its classroom-style format mimics a friendly teacher walking kids through each lesson."},
+{t:"Sesame Studios", net:"YouTube", dec:"2010s", age:"2-6", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"A digital-first companion channel to Sesame Street features short-form songs, skits, and character moments (2019\u2013present). It's designed specifically for how young kids watch video on phones and tablets, apart from the TV show format."},
+{t:"The Learning Station", net:"YouTube", dec:"2000s", age:"2-6", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Movement-based songs get kids up and dancing while reinforcing counting, letters, and following directions (2007\u2013present). Its brand of educational movement songs is a frequent pick in classrooms and preschools."},
+{t:"Julie's Greenroom", net:"Streaming & Other", dec:"2010s", age:"5-7", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Julie Andrews and a puppet troupe teach the performing arts through hands-on lessons and mini-shows (2017). Guest artists join each episode to walk young viewers through a different craft, from dance to costume design."},
+{t:"Kiboomers", net:"YouTube", dec:"2010s", age:"1-5", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Animated kids' songs and nursery rhymes cover counting, alphabet, and movement themes (2013\u2013present). Its catalog of classic and original songs favors simple repetition suited to toddlers."},
+{t:"Mother Goose Club Playhouse", net:"YouTube", dec:"2010s", age:"1-5", cat:"Music & Arts", cat2:"Comedy", g:"neutral", lang:"English", d:"A companion channel to Mother Goose Club features the same costumed cast in extended skits and story-driven songs (2012\u2013present). It builds on its parent channel's live-action nursery rhyme format with more narrative segments."},
+{t:"Brainchild", net:"Streaming & Other", dec:"2010s", age:"5-7", cat:"Science & Nature", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A host and real kids explore science and social topics through hands-on experiments and relatable examples (2018). Its documentary-style format keeps each big idea grounded in everyday experience."},
+{t:"Hip-Hop Harry", net:"Streaming & Other", dec:"2000s", age:"5-7", cat:"Music & Arts", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A costumed bear teaches cooperation and healthy habits through hip-hop dance and music (2006\u20132009, syndicated). Movement-based games and call-and-response songs anchor each episode's lesson."},
+{t:"Doc McStuffins", net:"Disney", dec:"2010s", age:"2-6", cat:"Life Skills & Emotions", cat2:"Preschool Learning", g:"girls", lang:"English", d:"A girl who can bring toys to life fixes them up in her backyard clinic (2012–2020). Storylines usually center on realistic, low-stakes conflicts resolved through conversation rather than magic or gadgets."},
+{t:"Sofia the First", net:"Disney", dec:"2010s", age:"3-7", cat:"Fantasy & Magic", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"A young girl becomes a princess and learns royal responsibility with help from a magic amulet (2013–2018). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Elena of Avalor", net:"Disney", dec:"2010s", age:"4-8", cat:"Fantasy & Magic", cat2:"Adventure", g:"girls", lang:"English", d:"A teenage princess rules a magical kingdom inspired by Latin folklore (2016–2020). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Vampirina", net:"Disney", dec:"2010s", age:"3-7", cat:"Fantasy & Magic", cat2:"Comedy", g:"girls", lang:"English", d:"A vampire girl moves from Transylvania to Pennsylvania and learns to fit in at school (2017–2021). Its whimsical world-building made it an easy entry point into gentle spooky storytelling for a young audience."},
+{t:"Fancy Nancy", net:"Disney", dec:"2010s", age:"3-7", cat:"Life Skills & Emotions", cat2:"Music & Arts", g:"girls", lang:"English", d:"A imaginative girl who loves all things fancy navigates friendship and everyday life (2018–2020). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Sheriff Callie's Wild West", net:"Disney", dec:"2010s", age:"2-6", cat:"Adventure", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"A young cat sheriff keeps the peace in a frontier town using kindness instead of force (2014–2017). Conflicts are typically resolved through empathy and communication, a formula that has aged well with caregivers."},
+{t:"Mickey and the Roadster Racers", net:"Disney", dec:"2010s", age:"2-6", cat:"Adventure", cat2:"Comedy", g:"neutral", lang:"English", d:"Mickey and friends build gadget-filled cars for races and rescue missions around town (2017–2019). Each episode tends to end with the characters overcoming an obstacle through cooperation rather than force."},
+{t:"Mickey Mouse Mixed-Up Adventures", net:"Disney", dec:"2010s", age:"2-6", cat:"Adventure", cat2:"Comedy", g:"neutral", lang:"English", d:"Mickey and the gang go on portal-hopping quests using a magical wardrobe (2019–2020). Each episode tends to end with the characters overcoming an obstacle through cooperation rather than force."},
+{t:"Mickey Mouse Funhouse", net:"Disney", dec:"2020s", age:"2-6", cat:"Adventure", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"A talking funhouse sends Mickey and friends into new worlds each episode (2021–2023). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"SuperKitties", net:"Disney", dec:"2020s", age:"3-7", cat:"Superhero & Action", cat2:"Adventure", g:"neutral", lang:"English", d:"A team of kitten superheroes uses gadgets and teamwork to help their city (2023–present). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Alice's Wonderland Bakery", net:"Disney", dec:"2020s", age:"3-7", cat:"Fantasy & Magic", cat2:"Adventure", g:"girls", lang:"English", d:"Alice's great-great-granddaughter bakes magical treats with help from Wonderland friends (2022–2024). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Eureka!", net:"Disney", dec:"2020s", age:"4-8", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"A young inventor in a prehistoric world solves problems with STEM thinking (2022–present). The show pairs an adventure-of-the-week format with facts about the natural world, aiming to spark curiosity about science."},
+{t:"Pupstruction", net:"Disney", dec:"2020s", age:"2-6", cat:"Life Skills & Emotions", cat2:"Adventure", g:"neutral", lang:"English", d:"A crew of puppy builders fixes up problems around their town using teamwork (2023–present). Each episode tends to end with the characters overcoming an obstacle through cooperation rather than force."},
+{t:"Gigantosaurus", net:"Disney", dec:"2010s", age:"3-6", cat:"Adventure", cat2:"Science & Nature", g:"neutral", lang:"English", d:"Four young dinosaurs go on adventures while searching for the legendary Gigantosaurus (2019–2023). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
+{t:"RoboGobo", net:"Disney", dec:"2020s", age:"2-6", cat:"Adventure", cat2:"Science & Nature", g:"neutral", lang:"English", d:"Kid inventors and their robot friends explore ocean habitats and solve gentle mysteries (2025–present). The show pairs an adventure-of-the-week format with facts about the natural world, aiming to spark curiosity about science."},
+{t:"Whisker Haven Tales with the Palace Pets", net:"Disney", dec:"2010s", age:"2-6", cat:"Fantasy & Magic", cat2:"Adventure", g:"girls", lang:"English", d:"Miniature royal pets have their own secret adventures in a hidden garden kingdom (2015–2017). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Marvel Super Hero Adventures", net:"Disney", dec:"2010s", age:"3-7", cat:"Superhero & Action", cat2:"Comedy", g:"neutral", lang:"English", d:"Simplified, preschool-friendly versions of Marvel heroes team up on kid-sized missions (2017–2021). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Kate & Mim-Mim", net:"Disney", dec:"2010s", age:"2-6", cat:"Fantasy & Magic", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"A girl and her stuffed rabbit travel to an imaginary world to work through everyday problems (2014–2017). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Abby Hatcher, Fuzzly Catcher", net:"Nickelodeon", dec:"2010s", age:"2-6", cat:"Adventure", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"A girl who lives in an apartment hotel cares for a hidden world of soft creatures called Fuzzlies (2019–2021). Conflicts are typically resolved through empathy and communication, a formula that has aged well with caregivers."},
+{t:"Butterbean's Cafe", net:"Nickelodeon", dec:"2010s", age:"2-6", cat:"Fantasy & Magic", cat2:"Music & Arts", g:"girls", lang:"English", d:"A young witch runs a magical cafe with her friends, whipping up treats and solving customer problems (2018–2022). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Ryan's Mystery Playdate", net:"Nickelodeon", dec:"2010s", age:"2-6", cat:"Mystery", cat2:"Comedy", g:"neutral", lang:"English", d:"A weekly mystery guest joins Ryan and his family for games, science, and surprises (2019–2022). Its mystery format gives each episode a clear beginning, investigation, and resolution."},
+{t:"Rainbow Rangers", net:"Nickelodeon", dec:"2010s", age:"2-6", cat:"Superhero & Action", cat2:"Science & Nature", g:"girls", lang:"English", d:"A team of tiny, colorful heroes protects the natural world from underground problems (2018–2020). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Rainbow Butterfly Unicorn Kitty", net:"Nickelodeon", dec:"2010s", age:"4-8", cat:"Fantasy & Magic", cat2:"Comedy", g:"girls", lang:"English", d:"A shapeshifting creature and her friends have whimsical adventures in a candy-colored world (2019–2021). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"The Fresh Beat Band of Spies", net:"Nickelodeon", dec:"2010s", age:"3-7", cat:"Music & Arts", cat2:"Mystery", g:"neutral", lang:"English", d:"A musical spinoff sends the Fresh Beats on secret-agent missions solved through song and teamwork (2015–2016). Its mystery format gives each episode a clear beginning, investigation, and resolution."},
+{t:"PAW Patrol: Rescue Knights", net:"Nickelodeon", dec:"2020s", age:"3-7", cat:"Superhero & Action", cat2:"Adventure", g:"neutral", lang:"English", d:"A medieval-themed spinoff follows knight versions of the PAW Patrol pups protecting their kingdom (2023–present). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Super Duper Bunny League", net:"Nickelodeon", dec:"2020s", age:"3-7", cat:"Superhero & Action", cat2:"Comedy", g:"neutral", lang:"English", d:"A team of bunny superheroes uses everyday problem-solving to save the day (2025–present). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Tim Rex in Space", net:"Nickelodeon", dec:"2020s", age:"3-7", cat:"Sci-Fi", cat2:"Adventure", g:"neutral", lang:"English", d:"A young dinosaur explores the galaxy with his crew in this preschool space adventure (2025–present). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
+{t:"The Tiny Chef Show", net:"Nickelodeon", dec:"2020s", age:"3-7", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"A tiny, soft-spoken puppet chef forages ingredients and cooks simple recipes for his friends (2023–present). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Face's Music Party", net:"Nickelodeon", dec:"2020s", age:"2-6", cat:"Music & Arts", cat2:"Comedy", g:"neutral", lang:"English", d:"A revived 90s Nickelodeon mascot hosts a music and dance variety show for young viewers (2022–present). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"Barbapapa: One Big Happy Family!", net:"Nickelodeon", dec:"2010s", age:"2-6", cat:"Fantasy & Magic", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A shapeshifting family of pink and black blob creatures models kindness and creative problem-solving (2019–present). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Mermicorno: Starfall", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Fantasy & Magic", cat2:"Adventure", g:"girls", lang:"English", d:"A team of mermaid-unicorns embarks on colorful undersea missions to stop an ink-loving villain (2025–present). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Camp Snoopy", net:"Apple TV+", dec:"2020s", age:"3-7", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"Snoopy and the Peanuts gang spend a summer at camp, with the beagle leading a troop of animal campers (2023–present). Episodes are largely stand-alone, prioritizing jokes and character quirks over ongoing plot."},
+{t:"Pinkalicious & Peterrific", net:"PBS Kids", dec:"2010s", age:"3-6", cat:"Music & Arts", cat2:"Preschool Learning", g:"girls", lang:"English", d:"A pink-loving girl and her brother explore creativity and problem-solving through art and imagination (2018–present). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"SciGirls", net:"PBS Kids", dec:"2010s", age:"6-9", cat:"Science & Nature", cat2:"Sports", g:"girls", lang:"English", d:"Real girls tackle hands-on STEM projects and experiments with guidance from women scientists (2010–present). Its creators leaned on hands-on demonstrations and field-trip-style segments to make science concepts concrete for kids."},
+{t:"Boohbah", net:"PBS Kids", dec:"2000s", age:"2-5", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Colorful bouncing characters lead young viewers through simple movement and play activities (2003–2006). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"Make Way for Noddy", net:"PBS Kids", dec:"2000s", age:"2-6", cat:"Adventure", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A wooden toy boy has gentle adventures in Toyland with his friends (2004–2007). Conflicts are typically resolved through empathy and communication, a formula that has aged well with caregivers."},
+{t:"Curiosity Quest", net:"PBS Kids", dec:"2000s", age:"6-9", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"A host visits factories, farms, and workplaces to answer kids' curious questions about how things work (2004–2015). Its creators leaned on hands-on demonstrations and field-trip-style segments to make science concepts concrete for kids."},
+{t:"The Biscuit Brothers", net:"PBS Kids", dec:"2000s", age:"3-6", cat:"Music & Arts", cat2:"Comedy", g:"neutral", lang:"English", d:"A musical variety show uses puppetry and original songs to teach early literacy and music concepts (2005–2010). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"The Charlie Horse Music Pizza", net:"PBS Kids", dec:"2000s", age:"3-6", cat:"Music & Arts", cat2:"Comedy", g:"neutral", lang:"English", d:"A puppet horse hosts a musical variety show teaching the arts through songs and sketches (2006–2009). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"The Dooley and Pals Show", net:"PBS Kids", dec:"2000s", age:"3-6", cat:"Life Skills & Emotions", cat2:"Music & Arts", g:"neutral", lang:"English", d:"A friendly dinosaur puppet and his friends teach manners and social skills through songs and stories (2008–2013). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"The Huggabug Club", net:"PBS Kids", dec:"2000s", age:"2-6", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Insect-costumed hosts lead sing-along lessons on letters, numbers, and nature (2004–2006). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"Albie's Elevator", net:"PBS Kids", dec:"2020s", age:"3-7", cat:"Life Skills & Emotions", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"A boy's magical elevator takes him and his friends to imaginative floors that tackle social-emotional themes (2021–present). Storylines usually center on realistic, low-stakes conflicts resolved through conversation rather than magic or gadgets."},
+{t:"64 Zoo Lane", net:"BBC / British TV", dec:"1990s", age:"3-6", cat:"Science & Nature", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"A girl who lives above a zoo hears bedtime stories from the animals each night (1999–2007). Real animals, experiments, or natural phenomena anchor most episodes, blending entertainment with genuine educational content."},
+{t:"3rd & Bird", net:"BBC / British TV", dec:"2000s", age:"2-5", cat:"Fantasy & Magic", cat2:"Comedy", g:"neutral", lang:"English", d:"Puppet animal friends learn about feelings and friendship in a colorful treehouse world (2008–2010). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"The Adventures of Abney & Teal", net:"BBC / British TV", dec:"2010s", age:"3-6", cat:"Fantasy & Magic", cat2:"Adventure", g:"neutral", lang:"English", d:"Two friends on a small island have gentle, whimsical adventures with their odd neighbors (2011–2012). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Brum", net:"BBC / British TV", dec:"1990s", age:"3-6", cat:"Adventure", cat2:"Comedy", g:"neutral", lang:"English", d:"A small vintage car has silent, slapstick adventures around a British city (1991–2002). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
+{t:"Come Outside", net:"BBC / British TV", dec:"1990s", age:"2-6", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"A woman and her dog visit real places to explore how everyday things work (1993–1997). Its creators leaned on hands-on demonstrations and field-trip-style segments to make science concepts concrete for kids."},
+{t:"Dirtgirlworld", net:"BBC / British TV", dec:"2000s", age:"2-6", cat:"Science & Nature", cat2:"Music & Arts", g:"girls", lang:"English", d:"A puppet girl who lives outdoors teaches gardening and nature appreciation through songs (2009–2011). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"Andy's Safari Adventures", net:"BBC / British TV", dec:"2010s", age:"4-8", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"A museum guide travels to Africa to meet real safari animals up close (2018–2019). Real animals, experiments, or natural phenomena anchor most episodes, blending entertainment with genuine educational content."},
+{t:"Andy's Aquatic Adventures", net:"BBC / British TV", dec:"2020s", age:"4-8", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"A museum guide explores oceans and rivers to meet real underwater creatures (2020–2022). Real animals, experiments, or natural phenomena anchor most episodes, blending entertainment with genuine educational content."},
+{t:"Andy's Prehistoric Adventures", net:"BBC / British TV", dec:"2010s", age:"4-8", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"A museum guide travels back in time to meet dinosaurs and prehistoric creatures (2016–2018). Real animals, experiments, or natural phenomena anchor most episodes, blending entertainment with genuine educational content."},
+{t:"Justin's House", net:"BBC / British TV", dec:"2010s", age:"4-8", cat:"Comedy", cat2:"Music & Arts", g:"neutral", lang:"English", d:"A magician host runs a chaotic house full of puppet friends, games, and songs (2011–2016). Episodes are largely stand-alone, prioritizing jokes and character quirks over ongoing plot."},
+{t:"Monty and Co.", net:"BBC / British TV", dec:"2020s", age:"3-7", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"A stop-motion dog and his neighborhood friends work through small everyday problems together (2020–present). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Show Me Show Me", net:"BBC / British TV", dec:"2000s", age:"1-5", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Puppet hosts Grover and Chick lead songs, games, and early-learning segments for toddlers (2009–2016). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"Catie's Amazing Machines", net:"BBC / British TV", dec:"2010s", age:"3-6", cat:"Science & Nature", cat2:"Adventure", g:"girls", lang:"English", d:"A young narrator introduces real construction and farm machines at work (2018–present). Its creators leaned on hands-on demonstrations and field-trip-style segments to make science concepts concrete for kids."},
+{t:"Bodger & Badger", net:"BBC / British TV", dec:"1990s", age:"4-8", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"A mashed-potato-loving badger causes chaos for his exasperated human dad (1990–2000). Episodes are largely stand-alone, prioritizing jokes and character quirks over ongoing plot."},
+{t:"Big & Small", net:"BBC / British TV", dec:"2010s", age:"2-6", cat:"Comedy", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A tall, gentle giant and his small mischievous friend learn everyday lessons together (2010–2013). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Big Cook, Little Cook", net:"BBC / British TV", dec:"2000s", age:"3-6", cat:"Preschool Learning", cat2:"Comedy", g:"neutral", lang:"English", d:"A giant chef and his small puppet assistant cook simple recipes for young viewers (2005–2009). Its creators leaned on hands-on demonstrations and field-trip-style segments to make science concepts concrete for kids."},
+{t:"Bobinogs", net:"BBC / British TV", dec:"2000s", age:"2-6", cat:"Fantasy & Magic", cat2:"Comedy", g:"neutral", lang:"English", d:"A family of wooly monster puppets has cozy adventures on a hillside (2003–2006). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Boogie Beebies", net:"BBC / British TV", dec:"2000s", age:"3-6", cat:"Music & Arts", cat2:"Sports", g:"neutral", lang:"English", d:"A movement and dance show gets young viewers up and moving to different music styles (2004–2007). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"Buzz and Tell", net:"BBC / British TV", dec:"2020s", age:"3-6", cat:"Preschool Learning", cat2:"Comedy", g:"neutral", lang:"English", d:"A curious bee-like character explores everyday objects and ideas brought in by young guests (2021–present). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Doodle Do", net:"BBC / British TV", dec:"2000s", age:"3-6", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"A drawing-based show encourages kids to sketch along with simple, playful prompts (2005–2008). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"Biff and Chip", net:"BBC / British TV", dec:"2020s", age:"4-8", cat:"Adventure", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Two siblings from a classic reading-scheme book series have magical adventures through a storybook (2021–present). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Down on the Farm", net:"BBC / British TV", dec:"2010s", age:"2-6", cat:"Science & Nature", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"A presenter introduces real farm animals and simple facts about rural life (2015–2018). Real animals, experiments, or natural phenomena anchor most episodes, blending entertainment with genuine educational content."},
+{t:"Go Wild", net:"BBC / British TV", dec:"2020s", age:"4-8", cat:"Science & Nature", cat2:"Sports", g:"neutral", lang:"English", d:"Young presenters take on outdoor challenges and nature activities in the British countryside (2023–present). Its creators leaned on hands-on demonstrations and field-trip-style segments to make science concepts concrete for kids."},
+{t:"Our Family", net:"BBC / British TV", dec:"2010s", age:"2-6", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"A blended family navigates everyday routines and small mishaps with warmth and humor (2016–2019). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Wonderblocks", net:"BBC / British TV", dec:"2020s", age:"4-8", cat:"Preschool Learning", cat2:"Science & Nature", g:"neutral", lang:"English", d:"Building-block characters introduce early coding and sequencing concepts through play (2025–present). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Andy's Global Adventures", net:"BBC / British TV", dec:"2020s", age:"4-8", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"A museum guide travels the world to meet animals and cultures on every continent (2023–present). Real animals, experiments, or natural phenomena anchor most episodes, blending entertainment with genuine educational content."},
+{t:"Dinopaws", net:"BBC / British TV", dec:"2010s", age:"3-6", cat:"Adventure", cat2:"Science & Nature", g:"neutral", lang:"English", d:"Three young dinosaur friends explore their prehistoric world and learn about nature (2015–2016). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
+{t:"Big Block SingSong", net:"Streaming & Other", dec:"2010s", age:"3-7", cat:"Music & Arts", cat2:"Comedy", g:"neutral", lang:"English", d:"Short, catchy original songs are paired with playful, quirky animated visuals (2011–2018). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"True and the Rainbow Kingdom", net:"Netflix", dec:"2010s", age:"3-7", cat:"Fantasy & Magic", cat2:"Adventure", g:"girls", lang:"English", d:"A girl and her cat friend use rainbow magic to solve problems in a colorful kingdom (2017–2020). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Little People", net:"Streaming & Other", dec:"2020s", age:"2-6", cat:"Preschool Learning", cat2:"Adventure", g:"neutral", lang:"English", d:"Fisher-Price's classic toy figures explore their neighborhood and learn everyday lessons (2022–present). Its whimsical world-building made it an easy entry point into imaginative storytelling for a young audience."},
+{t:"DreamWorks Dragons: Rescue Riders", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Adventure", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"Young dragon riders protect their island by rescuing dragons in need (2017–2024). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
+{t:"Dinotrux", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Adventure", cat2:"Sci-Fi", g:"boys", lang:"English", d:"Half-dinosaur, half-truck creatures called Dinotrux build and battle in a prehistoric world (2015–2018). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
+{t:"Trolls: The Beat Goes On!", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Music & Arts", cat2:"Comedy", g:"neutral", lang:"English", d:"Poppy and Branch lead the Trolls through musical, feel-good adventures in Troll Village (2018–2019). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"The Land Before Time", net:"Streaming & Other", dec:"2000s", age:"4-8", cat:"Adventure", cat2:"Science & Nature", g:"neutral", lang:"English", d:"A series based on the animated film follows young dinosaur friends on gentle prehistoric adventures (2007–2008). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
+{t:"Terrific Trucks", net:"Streaming & Other", dec:"2010s", age:"2-6", cat:"Preschool Learning", cat2:"Adventure", g:"boys", lang:"English", d:"Real construction and work trucks are introduced through simple, factual segments for young vehicle fans (2016–2019). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Noddy, Toyland Detective", net:"Streaming & Other", dec:"2010s", age:"3-6", cat:"Mystery", cat2:"Adventure", g:"neutral", lang:"English", d:"A wooden toy boy solves gentle mysteries around Toyland with his friends (2016–2021). Its mystery format gives each episode a clear beginning, investigation, and resolution."},
+{t:"Dot.", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Science & Nature", cat2:"Comedy", g:"girls", lang:"English", d:"A tech-loving girl explores gadgets and digital ideas with a playful, curious spirit (2016–2018). Its creators leaned on hands-on demonstrations and field-trip-style segments to make science concepts concrete for kids."},
+{t:"Kody Kapow", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Superhero & Action", cat2:"Sports", g:"boys", lang:"English", d:"A boy learns martial arts and confidence-building lessons from an animated mentor (2017–2020). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"School of Roars", net:"Streaming & Other", dec:"2010s", age:"2-6", cat:"Preschool Learning", cat2:"Comedy", g:"neutral", lang:"English", d:"Young monster friends attend school together and learn everyday social lessons (2017–2018). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Olivia", net:"Streaming & Other", dec:"2010s", age:"3-6", cat:"Life Skills & Emotions", cat2:"Comedy", g:"girls", lang:"English", d:"A confident, imaginative piglet navigates family life and creative play (2017–2021). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Norman Picklestripes", net:"Streaming & Other", dec:"2010s", age:"2-6", cat:"Fantasy & Magic", cat2:"Comedy", g:"boys", lang:"English", d:"A small striped creature has cozy, whimsical adventures in his cluttered attic home (2019–2021). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Powerbirds", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Superhero & Action", cat2:"Sports", g:"boys", lang:"English", d:"A team of bird-themed superheroes uses teamwork and gadgets to protect their city (2020–2023). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Superbuns", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Superhero & Action", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"A kind-hearted rabbit uses cleverness instead of super-strength to solve neighborhood problems (2024–present). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Dino Pops", net:"Streaming & Other", dec:"2020s", age:"2-6", cat:"Comedy", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Short, silly dinosaur sketches introduce early counting and vocabulary concepts (2024–present). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Li'l Stompers", net:"Streaming & Other", dec:"2020s", age:"2-6", cat:"Preschool Learning", cat2:"Adventure", g:"neutral", lang:"English", d:"Baby dinosaur friends learn cooperation and problem-solving on their island home (2024–present). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
+{t:"Dino Dan", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Science & Nature", cat2:"Adventure", g:"boys", lang:"English", d:"A boy who sees dinosaurs everywhere shares real paleontology facts through his imaginative visions (2010–2015). Real animals, experiments, or natural phenomena anchor most episodes, blending entertainment with genuine educational content."},
+{t:"Ella the Elephant", net:"Streaming & Other", dec:"2010s", age:"2-6", cat:"Music & Arts", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"A young elephant and her animal friends learn everyday lessons through song (2011–2013). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"Care Bears: Welcome to Care-a-Lot", net:"Cartoon Network", dec:"2010s", age:"3-7", cat:"Fantasy & Magic", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"The classic Care Bears look after Care-a-Lot and teach lessons about feelings and friendship (2012–2013). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Zou", net:"Streaming & Other", dec:"2010s", age:"2-6", cat:"Life Skills & Emotions", cat2:"Comedy", g:"boys", lang:"English", d:"A young zebra learns everyday lessons about family and friendship with warmth and humor (2011–2013). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"The Doodlebops", net:"Disney", dec:"2000s", age:"2-6", cat:"Music & Arts", cat2:"Comedy", g:"neutral", lang:"English", d:"A costumed rock band performs original songs and silly sketches for young viewers (2005–2007). Short, gentle segments and catchy tunes make it a staple of early-childhood programming blocks."},
+{t:"Bunnytown", net:"Disney", dec:"2000s", age:"2-6", cat:"Comedy", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A town full of bunny puppets works through everyday social situations with humor (2007–2008). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Angelmouse", net:"BBC / British TV", dec:"1990s", age:"2-6", cat:"Fantasy & Magic", cat2:"Comedy", g:"neutral", lang:"English", d:"A small mouse with wings tries to earn her angel status through kind, magical deeds (1999–2001). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"GiggleQuiz", net:"BBC / British TV", dec:"2010s", age:"4-8", cat:"Comedy", cat2:"Music & Arts", g:"neutral", lang:"English", d:"A sketch-comedy show for kids mixes silly characters, songs, and simple quiz games (2019–present). Episodes are largely stand-alone, prioritizing jokes and character quirks over ongoing plot."},
+{t:"B.O.T. and the Beasties", net:"BBC / British TV", dec:"2020s", age:"4-8", cat:"Sci-Fi", cat2:"Adventure", g:"neutral", lang:"English", d:"A friendly robot and his creature friends solve problems using science and teamwork (2021–present). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
+{t:"It's AumSum Time", net:"YouTube", dec:"2010s", age:"5-9", cat:"Science & Nature", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Short animated explainer videos answer curious kid questions about science and the world (2015–present). Its creators leaned on hands-on demonstrations and field-trip-style segments to make science concepts concrete for kids."},
+{t:"HobbyKidsTV", net:"YouTube", dec:"2010s", age:"4-8", cat:"Comedy", cat2:"Adventure", g:"boys", lang:"English", d:"A family of young hosts unboxes toys and plays through imaginative challenges (2013–present). Its high-energy, over-the-top style has made it one of the most-watched channels among elementary-aged kids."},
+{t:"CookieSwirlC", net:"YouTube", dec:"2010s", age:"5-9", cat:"Comedy", cat2:"Music & Arts", g:"girls", lang:"English", d:"An animated cookie-headed host plays with toys and shares colorful, story-driven skits (2013–present). Its high-energy, over-the-top style has made it one of the most-watched channels among elementary-aged kids."},
+{t:"SIS vs BRO", net:"YouTube", dec:"2010s", age:"5-9", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"A sister-and-brother duo perform toy-based challenges and playful competitions (2016–present). Its high-energy, over-the-top style has made it one of the most-watched channels among elementary-aged kids."},
+{t:"7 Bears", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"A ragtag group of forest bear friends stumble through slapstick misadventures together (2025, Netflix). Its broad physical comedy and simple setups make it an easy watch for kids just past the toddler stage."},
+{t:"Armorsaurs", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Superhero & Action", cat2:"Sci-Fi", g:"boys", lang:"English", d:"Kids team up with transforming dinosaur robots to defend their world (2025–present, Disney XD/streaming). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"The Bad Guys: The Series", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Adventure", cat2:"Comedy", g:"neutral", lang:"English", d:"Reformed animal outlaws from the hit film pull off good-deed capers as a spin-off series (2025–present, Netflix). Most episodes center on the heroes thwarting a scheme, wrapping up neatly by the end."},
+{t:"Bearbrick", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Comedy", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"A collectible-toy-inspired bear navigates playful everyday scrapes with friends (2025, Apple TV+). Its whimsical world-building made it an easy entry point into fantasy storytelling for a young audience."},
+{t:"Dog Days Out", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"A family dog's imaginative outings turn ordinary errands into small adventures (2025, Netflix). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Emerald", net:"Streaming & Other", dec:"2020s", age:"5-9", cat:"Fantasy & Magic", cat2:"Adventure", g:"girls", lang:"English", d:"A girl discovers a hidden magical world tucked inside her ordinary town (2025–present, Sky Kids/streaming). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Goldie", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Fantasy & Magic", cat2:"Comedy", g:"girls", lang:"English", d:"A larger-than-life heroine tells tall tales that blend truth and imagination for laughs (2025, Apple TV+). Its whimsical world-building made it an easy entry point into fantasy storytelling for a young audience."},
+{t:"Gupi", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Comedy", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"A curious young character explores an imaginative animated world full of gentle mischief (2025, Netflix). Episodes are largely stand-alone, prioritizing jokes and character quirks over ongoing plot."},
+{t:"Not a Box", net:"Streaming & Other", dec:"2020s", age:"2-6", cat:"Preschool Learning", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"Based on the beloved picture book, a rabbit's cardboard box becomes anything imagination allows (2025, Apple TV+). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Paris & Pups", net:"YouTube", dec:"2020s", age:"4-8", cat:"Comedy", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"An animated pop-star-and-her-dogs duo learns friendship and confidence lessons in bite-sized episodes (2025–present, YouTube). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Piñata Smashlings", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Fantasy & Magic", cat2:"Adventure", g:"neutral", lang:"English", d:"Colorful piñata creatures burst to life for candy-fueled adventures in their hidden world (2022–present, YouTube/streaming). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Polly Can Do", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Life Skills & Emotions", cat2:"Adventure", g:"girls", lang:"English", d:"A cheerful five-year-old with cerebral palsy shows that everyone can play and problem-solve their own way (2025–present, TVOKids/streaming). Storylines usually center on realistic, low-stakes conflicts resolved through conversation rather than magic or gadgets."},
+{t:"Stella and the Starlets", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Music & Arts", cat2:"Comedy", g:"girls", lang:"English", d:"A group of young performers rehearse, squabble, and put on backyard shows together (2025, TVOKids/streaming). The show uses music and performance as its central storytelling device, a hook aimed at young, movement-loving viewers."},
+{t:"Win or Lose", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Sports", cat2:"Comedy", g:"neutral", lang:"English", d:"A middle-school softball team's championship week is told from each player's differing point of view (2024, Disney+/Pixar). Its creators leaned on relatable, everyday stakes to make each episode's lesson land without feeling preachy."},
+{t:"Woolly Woolly", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Life Skills & Emotions", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"A knitted gnome and friends unravel gentle problems in a cozy handmade world (2025–present, TVOKids/streaming). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Chums", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"A close-knit group of animal pals navigate everyday friendship ups and downs (2024–present, APTN/streaming). The series' understated humor and warmth helped it build a loyal following among parents as well as kids."},
+{t:"Dee & Friends in Oz", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Fantasy & Magic", cat2:"Adventure", g:"neutral", lang:"English", d:"A young girl and her friends have whimsical adventures inspired by the Land of Oz (2024, Netflix). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Dream Productions", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Comedy", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"Inside Out spin-off following the dream-making crew inside a kid's mind as they scramble to fix a nightmare (2024, Disney+/Pixar). Its whimsical world-building made it an easy entry point into fantasy storytelling for a young audience."},
+{t:"Dylan's Playtime Adventures", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Preschool Learning", cat2:"Adventure", g:"neutral", lang:"English", d:"A curious rabbit explores everyday concepts through hands-on play and discovery (2024–present, CBC Kids/streaming). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Masters of the Universe: Revolution", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Superhero & Action", cat2:"Fantasy & Magic", g:"boys", lang:"English", d:"He-Man and the heroes of Eternia battle for their world in this continuation series (2024, Netflix). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Megamind Rules!", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Superhero & Action", cat2:"Comedy", g:"neutral", lang:"English", d:"The reformed supervillain from the DreamWorks film keeps his city safe with oddball inventions (2024, Peacock). Most episodes center on the heroes thwarting a scheme, wrapping up neatly by the end."},
+{t:"Mia & Codie", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Life Skills & Emotions", cat2:"Adventure", g:"girls", lang:"English", d:"A girl and her robotic canine companion tackle everyday challenges with curiosity and teamwork (2024–present, TVOKids/streaming). Conflicts are typically resolved through empathy and communication, a formula that has aged well with caregivers."},
+{t:"Kinderwood", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Mystery", cat2:"Adventure", g:"neutral", lang:"English", d:"A young explorer and her animal friends solve gentle mysteries in an enchanted forest (2020–2021, Noggin/streaming). Its mystery format gives each episode a clear beginning, investigation, and resolution."},
+{t:"The Wonderful World of Mickey Mouse", net:"Streaming & Other", dec:"2020s", age:"2-6", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"A stylish revival of classic Mickey Mouse shorts blending vintage charm with modern gags (2020–present, Disney+). Episodes are largely stand-alone, prioritizing jokes and character quirks over ongoing plot."},
+{t:"Strawberry Shortcake: Berry in the Big City", net:"YouTube", dec:"2020s", age:"4-8", cat:"Comedy", cat2:"Fantasy & Magic", g:"girls", lang:"English", d:"Strawberry Shortcake moves to a bustling city for fashion, friendship, and berry-scented fun (2021–2024, YouTube). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Superhero Kindergarten", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Superhero & Action", cat2:"Comedy", g:"neutral", lang:"English", d:"A retired superhero becomes a kindergarten teacher to secretly train a class of young heroes-in-training (2021, Amazon Prime Video). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Interrupting Chicken", net:"Streaming & Other", dec:"2020s", age:"3-6", cat:"Preschool Learning", cat2:"Comedy", g:"neutral", lang:"English", d:"Based on the picture book, a chicken's inability to sit still through bedtime stories sparks silly detours into storytelling itself (2022, Apple TV+). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"The Sisters Grimm", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Fantasy & Magic", cat2:"Mystery", g:"girls", lang:"English", d:"Descendants of the famous storytellers solve fairy-tale mysteries in a hidden magical town (2025–present, Apple TV+). Its mystery format gives each episode a clear beginning, investigation, and resolution."},
+{t:"Cosmic Kids Yoga", net:"YouTube", dec:"2010s", age:"3-7", cat:"Life Skills & Emotions", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Storytelling-based yoga and mindfulness sessions get kids moving and breathing through imaginative adventures. Its slow, sincere pacing was a deliberate rejection of frantic children's programming and remains popular with parents seeking calm screen time."},
+{t:"ABCmouse", net:"YouTube", dec:"2010s", age:"3-7", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Companion videos to the early-learning app cover letters, numbers, and songs through bright animated segments. The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"TED-Ed", net:"YouTube", dec:"2010s", age:"6-9", cat:"Science & Nature", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Short animated lessons distill big questions in science, history, and psychology into kid-accessible explainers. Episodes typically follow a simple question-and-discovery structure, ending with a clear takeaway."},
+{t:"Socratica Kids", net:"YouTube", dec:"2010s", age:"4-8", cat:"Preschool Learning", cat2:"Science & Nature", g:"neutral", lang:"English", d:"Catchy songs and simple animation introduce letters, numbers, and early arithmetic concepts. The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Learn Bright", net:"YouTube", dec:"2010s", age:"5-9", cat:"Science & Nature", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Animated explainer videos cover science and social-studies topics aimed at early elementary classrooms. Its creators leaned on hands-on demonstrations and field-trip-style segments to make science concepts concrete for kids."},
+{t:"Lunch Doodles with Mo Willems", net:"YouTube", dec:"2020s", age:"3-7", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Children's author Mo Willems hosts casual drawing lessons and read-alongs filmed from his studio (2020–present). Its low-key, direct-address style made it a comforting daily ritual for families during remote learning."},
+{t:"Sago Mini Friends", net:"Streaming & Other", dec:"2020s", age:"2-6", cat:"Preschool Learning", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"Based on the popular app, a group of animal pals learn sharing and kindness through simple daily routines (2022–present, Apple TV+). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Slumberkins", net:"Streaming & Other", dec:"2020s", age:"3-6", cat:"Life Skills & Emotions", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"Puppet-and-animation hybrid series built on the emotional-learning brand of the same name, helping kids name big feelings (2022–present, Apple TV+). Storylines usually center on realistic, low-stakes conflicts resolved through conversation rather than magic or gadgets."},
+{t:"Circuit Breakers", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Sci-Fi", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A futuristic anthology series uses sci-fi scenarios to explore relatable kid problems like fairness and belonging (2022, Apple TV+). Each story stands alone, giving young viewers a fresh cast and setting every episode."},
+{t:"Wolfboy and the Everything Factory", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Fantasy & Magic", cat2:"Music & Arts", g:"neutral", lang:"English", d:"A boy who transforms into a wolf helps run a magical toy-and-invention factory (2021–present, Apple TV+). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Jane", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Science & Nature", cat2:"Adventure", g:"girls", lang:"English", d:"A young wildlife activist teams up with a puppet chimp to protect animals around the world (2023, Apple TV+). The show pairs an adventure-of-the-week format with facts about the natural world, aiming to spark curiosity about science."},
+{t:"Pretzel and the Puppies", net:"Streaming & Other", dec:"2020s", age:"3-6", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"A wise old dachshund and a litter of energetic puppies learn manners and patience together (2022–present, Apple TV+). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Hello, Jack! The Kindness Show", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"A cheerful neighbor greets everyone with warmth and humor, modeling everyday kindness (2021–present, Apple TV+). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Shape Island", net:"Streaming & Other", dec:"2020s", age:"3-6", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"Circle, Square, and Triangle navigate friendship mishaps on a whimsical island (2023–present, Apple TV+). Storylines usually center on realistic, low-stakes conflicts resolved through conversation rather than magic or gadgets."},
+{t:"Dino Daycare", net:"Streaming & Other", dec:"2020s", age:"2-6", cat:"Science & Nature", cat2:"Comedy", g:"neutral", lang:"English", d:"Baby dinosaurs learn to share and cooperate at a prehistoric daycare center (2023, Apple TV+). The show pairs an adventure-of-the-week format with facts about the natural world, aiming to spark curiosity about science."},
+{t:"Iron Man and His Awesome Friends", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Superhero & Action", cat2:"Science & Nature", g:"boys", lang:"English", d:"Tony Stark teams up with young inventors to solve problems using science and gadgetry (2025–present, Disney+). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Turbo FAST", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Sports", cat2:"Adventure", g:"neutral", lang:"English", d:"A snail with dreams of speed races alongside his garage crew after gaining superspeed (2013–2016, Netflix). Its underdog-athlete premise gives each episode a clear stake and a satisfying finish line."},
+{t:"Dawn of the Croods", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"The prehistoric Crood family navigates cave-life mishaps in this spin-off of the animated film (2015–2017, Netflix). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Kung Fu Panda: Paws of Destiny", net:"Streaming & Other", dec:"2010s", age:"6-9", cat:"Superhero & Action", cat2:"Adventure", g:"neutral", lang:"English", d:"Po trains a new generation of young warriors to master kung fu and protect the Valley of Peace (2018, Amazon Prime Video). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Trolls: TrollsTopia", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Music & Arts", cat2:"Comedy", g:"girls", lang:"English", d:"Poppy and Branch host festivals and solve friendship problems in their glittery Trolls world (2020–2022, Hulu/Peacock). The show uses music and performance as its central storytelling device, a hook aimed at young, movement-loving viewers."},
+{t:"The Cuphead Show!", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Comedy", cat2:"Adventure", g:"boys", lang:"English", d:"Cuphead and Mugman's video-game misadventures get a 1930s-cartoon makeover full of slapstick chaos (2022–2024, Netflix). Its high-energy, over-the-top style has made it one of the most-watched channels among elementary-aged kids."},
+{t:"Barbie Dreamhouse Adventures", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Comedy", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"Barbie and her sisters navigate everyday family life and friendship in their colorful dream house (2018–present, Netflix). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Barbie: A Touch of Magic", net:"Streaming & Other", dec:"2020s", age:"5-9", cat:"Fantasy & Magic", cat2:"Adventure", g:"girls", lang:"English", d:"Barbie discovers a hidden magical realm and must protect it alongside new friends (2023–present, Netflix). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Rainbow High", net:"YouTube", dec:"2020s", age:"5-9", cat:"Comedy", cat2:"Music & Arts", g:"girls", lang:"English", d:"Fashion-forward students at a colorful art school navigate friendship and design projects (2020–present, YouTube/Netflix). The show uses music and performance as its central storytelling device, a hook aimed at young, movement-loving viewers."},
+{t:"Numberock", net:"YouTube", dec:"2010s", age:"5-9", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Catchy music videos turn multiplication, fractions, and geometry into memorable sing-along lessons. The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Mighty Little Bheem", net:"Streaming & Other", dec:"2010s", age:"2-6", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"A chubby, mostly wordless baby uses charm and mischief to get his way in his Indian village (2019–present, Netflix). Its dialogue-light, highly physical humor makes it easy to follow for the youngest viewers."},
+{t:"Action Pack", net:"Streaming & Other", dec:"2020s", age:"5-9", cat:"Mystery", cat2:"Adventure", g:"neutral", lang:"English", d:"A trio of young detectives with special powers solve neighborhood mysteries together (2022, Netflix). Its mystery format gives each episode a clear beginning, investigation, and resolution."},
+{t:"Big Tree City", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Life Skills & Emotions", cat2:"Adventure", g:"neutral", lang:"English", d:"Animal neighbors in a towering treehouse city help each other solve everyday problems (2022, Netflix). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Deepa & Anoop", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Preschool Learning", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"Sibling elephants navigate playdates, sharing, and sibling rivalry in a colorful Indian-inspired world (2022, Netflix). Storylines usually center on realistic, low-stakes conflicts resolved through conversation rather than magic or gadgets."},
+{t:"Chibiverse", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Comedy", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"Chibi versions of Disney characters have short, silly, snack-sized adventures together (2022, Disney Channel/streaming). Episodes are largely stand-alone, prioritizing jokes and character quirks over ongoing plot."},
+{t:"Wacky Wednesday", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Comedy", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"Based on the Dr. Seuss book, a topsy-turvy day turns a kid's ordinary Wednesday completely upside down (Netflix). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Lellobee City Farm", net:"Streaming & Other", dec:"2020s", age:"2-6", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Animal friends run a cheerful farm-in-the-city, singing and learning simple lessons together (2022, HBO Max/streaming). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Care Bears: Unlock the Magic", net:"Streaming & Other", dec:"2010s", age:"3-7", cat:"Fantasy & Magic", cat2:"Life Skills & Emotions", g:"girls", lang:"English", d:"The classic Care Bears use their tummy symbols and teamwork to spread kindness through Care-a-Lot (2019–present, streaming). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Scooby-Doo and the Mystery Pups", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Mystery", cat2:"Comedy", g:"neutral", lang:"English", d:"A preschool-friendly take on the gang as pups following clues to solve gentle neighborhood mysteries (2021, streaming). Its mystery format gives each episode a clear beginning, investigation, and resolution."},
+{t:"Science Max: Experiments at Large", net:"Streaming & Other", dec:"2010s", age:"6-9", cat:"Science & Nature", cat2:"Comedy", g:"neutral", lang:"English", d:"A host supersizes classic science experiments to spectacular scale for young viewers (Peacock/streaming). Its creators leaned on hands-on demonstrations and field-trip-style segments to make science concepts concrete for kids."},
+{t:"Abominable and the Invisible City", net:"Streaming & Other", dec:"2020s", age:"5-9", cat:"Fantasy & Magic", cat2:"Adventure", g:"neutral", lang:"English", d:"Three friends and their yeti companion discover magical creatures hidden throughout their city (2022, Peacock/DreamWorks). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Danny Go!", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Music & Arts", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A high-energy host leads sing-and-dance-along videos designed to get young kids moving (2021–present, Netflix/YouTube). The show uses music and performance as its central storytelling device, a hook aimed at young, movement-loving viewers."},
+{t:"Hey A.J.!", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Life Skills & Emotions", cat2:"Music & Arts", g:"girls", lang:"English", d:"A girl and her stuffed bunny sidekick turn ordinary moments into songful, imaginative adventures (2026–present, Disney+). Rather than big adventures, it favors small, human moments that model kindness, patience, and honesty."},
+{t:"Red Fish, Blue Fish", net:"Streaming & Other", dec:"2020s", age:"2-6", cat:"Preschool Learning", cat2:"Comedy", g:"neutral", lang:"English", d:"Based on the Dr. Seuss classic, two fish friends explore opposite concepts through playful comedy (Netflix). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Larva Island", net:"Streaming & Other", dec:"2010s", age:"5-9", cat:"Comedy", cat2:"Fantasy & Magic", g:"boys", lang:"English", d:"Two wordless grub friends are stranded on a strange island full of oddball creatures (2018–2020, Netflix). Its dialogue-light, highly physical humor makes it easy to follow for the youngest viewers."},
+{t:"Battle Kitty", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Superhero & Action", cat2:"Comedy", g:"neutral", lang:"English", d:"A video-game cat battles her way through absurd levels using unexpected weapons and wit (2022, Netflix). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"The Bug Diaries", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Science & Nature", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A backyard's worth of insect friends narrate their small-scale adventures and lessons (Amazon Kids+). The show pairs an adventure-of-the-week format with facts about the natural world, aiming to spark curiosity about science."},
+{t:"Buddi", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Science & Nature", cat2:"Adventure", g:"neutral", lang:"English", d:"A friendly robot dog helps a curious kid explore how everyday gadgets and machines work (2018, Amazon Prime Video). Its creators leaned on hands-on demonstrations and field-trip-style segments to make science concepts concrete for kids."},
+{t:"Hot Wheels Let's Race", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Sports", cat2:"Adventure", g:"boys", lang:"English", d:"A crew of young racers customize cars and compete on wild, gravity-defying tracks (2023–present, Netflix). Its underdog-athlete premise gives each episode a clear stake and a satisfying finish line."},
+{t:"CoComelon Lane", net:"Streaming & Other", dec:"2020s", age:"2-6", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"A gentler, storybook-style spin-off of the nursery-rhyme franchise set in a cozy neighborhood (2024–present, Netflix). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"My Little Pony: Make Your Mark", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Fantasy & Magic", cat2:"Comedy", g:"girls", lang:"English", d:"A new generation of ponies work to bring magic back to Equestria through friendship (2022–present, Netflix). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"BabyBus", net:"YouTube", dec:"2010s", age:"2-6", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Animated panda characters sing and act out songs teaching numbers, manners, and safety habits. The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"BoBoiBoy", net:"YouTube", dec:"2010s", age:"6-9", cat:"Superhero & Action", cat2:"Sci-Fi", g:"boys", lang:"English", d:"A boy who can split into elemental versions of himself defends his island from alien invaders (2016–present, YouTube/streaming). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"Miraculous: Tales of Ladybug & Cat Noir", net:"YouTube", dec:"2010s", age:"6-9", cat:"Superhero & Action", cat2:"Adventure", g:"girls", lang:"English", d:"Two Parisian teens secretly transform into superheroes to protect their city from supervillains (2015–present, YouTube/streaming). Most episodes center on the heroes thwarting a scheme, wrapping up neatly by the end."},
+{t:"The Twits", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Comedy", cat2:"Adventure", g:"neutral", lang:"English", d:"Roald Dahl's gruesome, prank-loving couple get their comeuppance from a band of clever kids and animals (2025, Netflix). Its irreverent humor and playful mischief give it the sharp, silly edge fans expect from Dahl adaptations."},
+{t:"Bookmarks: Celebrating Black Voices", net:"Streaming & Other", dec:"2020s", age:"5-9", cat:"Life Skills & Emotions", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"Celebrities read picture books by Black authors, followed by short educational segments (2020, Netflix). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Cookie Monster's Foodie Truck", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Preschool Learning", cat2:"Comedy", g:"neutral", lang:"English", d:"Cookie Monster and friends drive a food truck across a city, learning about new foods and cultures (2023–present, Max/YouTube). The show pairs an adventure-of-the-week format with facts about the natural world, aiming to spark curiosity about science."},
+{t:"Pokémon Horizons: The Series", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Adventure", cat2:"Superhero & Action", g:"neutral", lang:"English", d:"A new generation of Trainers set sail to explore the Pokémon world and uncover its mysteries (2023–present, Netflix). Most episodes follow a self-contained quest or journey, giving the cast a new challenge or destination each time."},
+{t:"Iyanu: Child of Wonder", net:"Streaming & Other", dec:"2020s", age:"7-9", cat:"Fantasy & Magic", cat2:"Superhero & Action", g:"girls", lang:"English", d:"A Nigerian teen discovers hidden powers tied to ancient gods as she protects her homeland (2024–present, Max/Cartoon Network). The show follows a fairly standard hero-versus-villain structure, with each episode built around a new threat to defeat."},
+{t:"The Bazillions", net:"YouTube", dec:"2010s", age:"4-8", cat:"Music & Arts", cat2:"Preschool Learning", g:"neutral", lang:"English", d:"A kid-rock band performs original songs about colors, shapes, and counting with real instruments. The show uses music and performance as its central storytelling device, a hook aimed at young, movement-loving viewers."},
+{t:"Story Time at Awnie's House", net:"YouTube", dec:"2010s", age:"3-7", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"A host reads picture books aloud with animated illustrations and simple discussion questions. Its low-key, direct-address style made it a comforting addition to early-literacy viewing routines."},
+{t:"Max & the Midknights", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Adventure", cat2:"Fantasy & Magic", g:"neutral", lang:"English", d:"A minstrel's kid trades traveling life for knight training in a medieval fantasy kingdom (2024–present, Nickelodeon/streaming). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
+{t:"Wylde Pak", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Adventure", cat2:"Comedy", g:"neutral", lang:"English", d:"A pack of animal friends explore the wilderness just beyond their backyard fence (2026–present, Nickelodeon/streaming). The show mixes exploration and mild peril with problem-solving, a common formula for kid-friendly adventure series."},
+{t:"The Smurfs", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Fantasy & Magic", cat2:"Comedy", g:"neutral", lang:"English", d:"The blue forest-dwelling Smurfs reboot brings the classic village back with new adventures and lessons (2021–present, streaming). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"Percy the Park Keeper", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Science & Nature", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A kindly park keeper and his woodland animal friends look after their forest home through the seasons (2021–present, streaming). The show pairs an adventure-of-the-week format with facts about the natural world, aiming to spark curiosity about science."},
+{t:"Ten Little... Who?", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Mystery", cat2:"Comedy", g:"neutral", lang:"English", d:"A rhyming counting format hides a silly mystery character among ten possibilities each episode (2025–present, Sky Kids/streaming). Its mystery format gives each episode a clear beginning, investigation, and resolution."},
+{t:"The Sneetches", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"Dr. Seuss's story of star-bellied and plain-bellied creatures learning to look past surface differences (Netflix). Storylines usually center on realistic, low-stakes conflicts resolved through conversation rather than magic or gadgets."},
+{t:"Thidwick the Big-Hearted Moose", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"Dr. Seuss's overly generous moose learns to balance kindness with healthy boundaries (Netflix special/series). Storylines usually center on realistic, low-stakes conflicts resolved through conversation rather than magic or gadgets."},
+{t:"Migi and Dako", net:"Streaming & Other", dec:"2020s", age:"6-9", cat:"Sci-Fi", cat2:"Comedy", g:"boys", lang:"English", d:"A boy accidentally bonds with two bickering alien symbiotes who reshape his daily life (2024, Peacock/DreamWorks). Its odd-couple banter and sci-fi gadgetry give the show a distinct comic energy."},
+{t:"The Velveteen Rabbit", net:"Streaming & Other", dec:"2020s", age:"4-8", cat:"Fantasy & Magic", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"A stuffed rabbit's wish to become real unfolds in a tender adaptation of the classic story (2023, Apple TV+). Its gentle, storybook pacing favors emotional warmth over spectacle."},
+{t:"PlayKids", net:"YouTube", dec:"2010s", age:"2-6", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"A roster of animated toddler characters sing and play through everyday routines and simple lessons. The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Speakaboos", net:"Streaming & Other", dec:"2010s", age:"3-7", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Interactive storybook videos pair read-along narration with songs to build early reading skills. The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Elf Pets", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Fantasy & Magic", cat2:"Life Skills & Emotions", g:"neutral", lang:"English", d:"Magical reindeer and other Elf on the Shelf companions help spread kindness during the holidays (Netflix specials/series). It leans on a colorful magical world to deliver lighthearted stories with just enough stakes to stay engaging."},
+{t:"The Adventures of Napkin Man!", net:"Streaming & Other", dec:"2020s", age:"3-7", cat:"Life Skills & Emotions", cat2:"Comedy", g:"neutral", lang:"English", d:"A superhero made of napkins swoops in to help kids solve small everyday problems with kindness (2022–present, streaming). The series' understated humor and warmth helped it build a loyal following among parents as well as kids."},
+{t:"The Notekins", net:"Streaming & Other", dec:"2010s", age:"2-6", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Musical note characters sing simple songs to introduce toddlers to early concepts and vocabulary (BabyFirst TV/streaming). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Vocabularry", net:"Streaming & Other", dec:"2010s", age:"2-6", cat:"Preschool Learning", cat2:"Music & Arts", g:"neutral", lang:"English", d:"Short animated segments build early vocabulary through repetition, songs, and playful visuals (BabyFirst TV/streaming). The series was built around simple, standalone lessons aimed at very young viewers just starting to grasp basic concepts."},
+{t:"Dora and Friends: Into the City!", net:"Streaming & Other", dec:"2010s", age:"4-8", cat:"Adventure", cat2:"Music & Arts", g:"girls", lang:"English", d:"An older Dora and her friends explore a bustling city, solving problems through teamwork and song (2014–2017, streaming). Most episodes follow a self-contained quest or journey, giving the cast a new challenge or destination each time."},
+];
 
 const main = document.getElementById('main');
 const emptyMsg = document.getElementById('emptyMsg');
@@ -1438,6 +1657,7 @@ let activeSort = 'default';
 let bookmarks = new Set();
 let favorites = new Set();
 let downloadLinks = {};
+let downloadedShows = new Set();
 let deletedShows = new Set();
 let collapsedNets = new Set();
 
@@ -1598,6 +1818,97 @@ function sortItems(items){
   return arr;
 }
 
+/* =========================================================
+   FIREBASE — cloud sync (no login/auth; open read/write via REST),
+   same project/pattern as the Grade 2 app, its own database path
+   ("kids_tv_shows") so this app's data never collides with others.
+   Falls back to localStorage-only if the network/Firebase is unreachable.
+   ========================================================= */
+const FIREBASE_DB_URL = "https://kidstv-17b97-default-rtdb.asia-southeast1.firebasedatabase.app/";
+const CLOUD_URL = FIREBASE_DB_URL + "kids_tv_shows.json";
+const LS_PREFIX = "ktv_"; // every localStorage key this app uses starts with this
+
+// Bundles every ktv_ localStorage key into one JSON blob for Firebase.
+function buildLocalSnapshot(){
+  const out = {};
+  for(let i=0;i<localStorage.length;i++){
+    const k = localStorage.key(i);
+    if(k && k.indexOf(LS_PREFIX)===0){
+      try{ out[k] = JSON.parse(localStorage.getItem(k)); }catch(e){}
+    }
+  }
+  return out;
+}
+
+let cloudSyncTimer = null;
+function queueCloudSync(){
+  // Debounce so rapid clicks (bookmarking, hearting) don't fire a request each time.
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = setTimeout(pushToCloud, 600);
+}
+
+async function pushToCloud(){
+  try{
+    const res = await fetch(CLOUD_URL, {
+      method: "PUT",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(buildLocalSnapshot())
+    });
+    if(!res.ok) throw new Error("bad response");
+    return true;
+  }catch(e){
+    // Offline or Firebase unreachable — local copy is still safe.
+    console.warn("Firebase sync skipped:", e.message);
+    return false;
+  }
+}
+
+async function loadFromCloud(){
+  // Pull the shared save down in the background, so this device
+  // picks up bookmarks/favorites made on any other device. Falls back
+  // silently to whatever is already in localStorage if the cloud isn't reachable.
+  try{
+    const res = await fetch(CLOUD_URL);
+    if(!res.ok) throw new Error("bad response");
+    const remote = await res.json();
+    if(remote && typeof remote === "object"){
+      Object.keys(remote).forEach(k=>{
+        try{ localStorage.setItem(k, JSON.stringify(remote[k])); }catch(e){}
+      });
+      return true;
+    }
+    return false;
+  }catch(e){
+    console.warn("Firebase load skipped (offline):", e.message);
+    return false;
+  }
+}
+
+function showSaveToast(msg){
+  const el = document.getElementById('saveToast');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(showSaveToast._t);
+  showSaveToast._t = setTimeout(()=>{ el.style.display = 'none'; }, 1800);
+}
+
+async function saveEverythingNow(){
+  const btn = document.getElementById('saveBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '💾 Saving…'; }
+  // Write every piece of state to localStorage first (always succeeds),
+  // then skip the debounce and push the full snapshot to Firebase right away.
+  saveDeletedShows();
+  saveDownloadLinks();
+  saveBookmarks();
+  saveFavorites();
+  saveDownloadedShows();
+  clearTimeout(cloudSyncTimer);
+  const cloudOk = await pushToCloud();
+  showSaveToast(cloudOk ? "✅ Saved to Firebase!" : "⚠️ Saved on this device only (offline)");
+  if(btn){ btn.disabled = false; btn.textContent = '💾 Save'; }
+}
+
 function loadBookmarks(){
   try{
     const raw = localStorage.getItem(LS_PREFIX+'bookmarked_shows');
@@ -1622,7 +1933,9 @@ function toggleBookmark(title){
   if(bookmarks.has(title)){
     bookmarks.delete(title);
     delete downloadLinks[title];
+    downloadedShows.delete(title);
     saveDownloadLinks();
+    saveDownloadedShows();
   } else {
     bookmarks.add(title);
   }
@@ -1742,6 +2055,34 @@ function saveDownloadLinks(){
   queueCloudSync();
 }
 
+function loadDownloadedShows(){
+  try{
+    const raw = localStorage.getItem(LS_PREFIX+'downloaded_shows');
+    if(raw) downloadedShows = new Set(JSON.parse(raw));
+  }catch(e){
+    downloadedShows = new Set();
+  }
+}
+
+function saveDownloadedShows(){
+  try{
+    localStorage.setItem(LS_PREFIX+'downloaded_shows', JSON.stringify([...downloadedShows]));
+  }catch(e){
+    console.error('Could not save downloaded shows', e);
+  }
+  queueCloudSync();
+}
+
+function toggleDownloaded(title){
+  if(downloadedShows.has(title)){
+    downloadedShows.delete(title);
+  } else {
+    downloadedShows.add(title);
+  }
+  saveDownloadedShows();
+  renderBookmarksModal();
+}
+
 function loadDeletedShows(){
   try{
     const raw = localStorage.getItem(LS_PREFIX+'deleted_shows');
@@ -1764,9 +2105,11 @@ function deleteShow(title){
   deletedShows.add(title);
   bookmarks.delete(title);
   delete downloadLinks[title];
+  downloadedShows.delete(title);
   saveDeletedShows();
   saveBookmarks();
   saveDownloadLinks();
+  saveDownloadedShows();
   render();
 }
 
@@ -1775,10 +2118,12 @@ function deleteShowsBulk(titles){
     deletedShows.add(t);
     bookmarks.delete(t);
     delete downloadLinks[t];
+    downloadedShows.delete(t);
   });
   saveDeletedShows();
   saveBookmarks();
   saveDownloadLinks();
+  saveDownloadedShows();
   render();
 }
 
@@ -1817,10 +2162,12 @@ function renderBookmarksModal(){
     const show = shows.find(s=>s.t===title);
     if(!show) return;
     const link = downloadLinks[title] || '';
+    const isDownloaded = downloadedShows.has(title);
     const safeTitle = title.replace(/"/g,'&quot;');
     const row = document.createElement('div');
     row.className='bm-row';
     row.innerHTML = `
+      <button class="bm-download-btn ${isDownloaded?'downloaded':''}" data-title="${safeTitle}" title="${isDownloaded?'Downloaded':'Not downloaded yet'}">${isDownloaded?'✓':'⬇'}</button>
       <h3 class="bm-title">${show.t}</h3>
       <div class="bm-tagrow">
         <span class="tag" style="background:${netColor[show.net]}">${show.net}</span>
@@ -1855,6 +2202,9 @@ function renderBookmarksModal(){
       toggleBookmark(btn.dataset.title);
       renderBookmarksModal();
     });
+  });
+  list.querySelectorAll('.bm-download-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=> toggleDownloaded(btn.dataset.title));
   });
 }
 
@@ -1973,7 +2323,6 @@ document.getElementById('bookmarksModalOverlay').addEventListener('click', (e)=>
   if(e.target.id==='bookmarksModalOverlay') closeBookmarksModal();
 });
 searchInput.addEventListener('input', render);
-
 document.getElementById('saveBtn').addEventListener('click', saveEverythingNow);
 
 updateBadges();
@@ -1985,6 +2334,7 @@ updateBadges();
    ========================================================= */
 loadDeletedShows();
 loadDownloadLinks();
+loadDownloadedShows();
 loadBookmarks();
 loadFavorites();
 
@@ -1992,6 +2342,7 @@ loadFromCloud().then(cloudSynced=>{
   if(cloudSynced){
     loadDeletedShows();
     loadDownloadLinks();
+    loadDownloadedShows();
     loadBookmarks();
     loadFavorites();
   }
